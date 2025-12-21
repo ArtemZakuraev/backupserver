@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}История PostgreSQL бэкапов - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-history me-2"></i>
+                    История бэкапов: {{ task.name }}
+                </h4>
+            </div>
+            <div class="card-body">
+                <p><strong>База данных:</strong> <code>{{ task.database }}</code></p>
+                <p><strong>Хост:</strong> {{ task.host }}:{{ task.port }}</p>
+                <p><strong>Расписание:</strong> <code>{{ task.schedule_cron }}</code></p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">История выполнений</h4>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Дата начала</th>
+                                <th>Дата окончания</th>
+                                <th>Статус</th>
+                                <th>Длительность</th>
+                                <th>Размер</th>
+                                <th>Файл</th>
+                                <th>S3 путь</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in history %}
+                            <tr>
+                                <td>{{ item.started_at.strftime('%Y-%m-%d %H:%M:%S') if item.started_at else '-' }}</td>
+                                <td>{{ item.finished_at.strftime('%Y-%m-%d %H:%M:%S') if item.finished_at else '-' }}</td>
+                                <td>
+                                    {% if item.status == 'success' %}
+                                        <span class="badge bg-success">Успешно</span>
+                                    {% elif item.status == 'error' %}
+                                        <span class="badge bg-danger">Ошибка</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">Выполняется</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.duration_seconds }} сек</td>
+                                <td>{{ "%.2f"|format(item.dump_size_mb) if item.dump_size_mb else '-' }} MB</td>
+                                <td><code>{{ item.dump_filename or '-' }}</code></td>
+                                <td><code>{{ item.s3_path or '-' }}</code></td>
+                                <td>
+                                    {% if item.status == 'success' and item.s3_path %}
+                                    <button class="btn btn-sm btn-warning" onclick="restoreBackup({{ task.id }}, '{{ item.s3_path }}', '{{ task.database }}')">
+                                        <i class="fas fa-undo"></i> Восстановить
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% if item.error_message %}
+                            <tr>
+                                <td colspan="8" class="text-danger">
+                                    <small>Ошибка: {{ item.error_message }}</small>
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для восстановления -->
+<div class="modal fade" id="restoreModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Восстановление базы данных</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="restoreForm">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <strong>Внимание!</strong> Восстановление перезапишет существующую базу данных.
+                    </div>
+                    <div class="mb-3">
+                        <label for="restore_s3_path" class="form-label">S3 путь к бэкапу</label>
+                        <input type="text" class="form-control" id="restore_s3_path" name="s3_path" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="target_database" class="form-label">Целевая база данных (оставьте пустым для восстановления в исходную)</label>
+                        <input type="text" class="form-control" id="target_database" name="target_database" placeholder="{{ task.database }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-danger">Восстановить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentTaskId = {{ task.id }};
+let currentDatabase = '{{ task.database }}';
+
+function restoreBackup(taskId, s3Path, defaultDatabase) {
+    if (!confirm('ВНИМАНИЕ! Восстановление перезапишет существующую базу данных. Продолжить?')) {
+        return;
+    }
+    
+    document.getElementById('restore_s3_path').value = s3Path;
+    document.getElementById('target_database').placeholder = defaultDatabase;
+    const modal = new bootstrap.Modal(document.getElementById('restoreModal'));
+    modal.show();
+}
+
+document.getElementById('restoreForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const s3Path = document.getElementById('restore_s3_path').value;
+    const targetDatabase = document.getElementById('target_database').value;
+    
+    fetch(`/api/postgres-backup-tasks/${currentTaskId}/restore`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            task_id: currentTaskId,
+            s3_path: s3Path,
+            target_database: targetDatabase || null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('База данных восстановлена успешно!');
+            bootstrap.Modal.getInstance(document.getElementById('restoreModal')).hide();
+        } else {
+            alert('Ошибка: ' + (data.detail || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка: ' + error);
+    });
+});
+</script>
+{% endblock %}
+

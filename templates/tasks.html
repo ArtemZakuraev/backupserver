@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block title %}Задачи - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-tasks me-2"></i>Управление задачами резервного копирования</h4>
+                {% if user.is_admin %}
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+                    <i class="fas fa-plus me-2"></i>Добавить задачу
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Агент</th>
+                                <th>Путь</th>
+                                <th>Расписание</th>
+                                <th>Статус</th>
+                                <th>Последний запуск</th>
+                                <th>Следующий запуск</th>
+                                <th>Ошибка</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for task in tasks %}
+                            <tr>
+                                <td>{{ task.id }}</td>
+                                <td>{{ task.name }}</td>
+                                <td>{{ task.agent.name if task.agent else '-' }}</td>
+                                <td><code>{{ task.source_path }}</code></td>
+                                <td><code>{{ task.schedule_cron }}</code></td>
+                                <td>
+                                    {% if task.is_active %}
+                                        <span class="badge bg-success">Активна</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Неактивна</span>
+                                    {% endif %}
+                                    {% if task.last_status == 'success' %}
+                                        <span class="badge bg-success ms-1">Успешно</span>
+                                    {% elif task.last_status == 'error' %}
+                                        <span class="badge bg-danger ms-1">Ошибка</span>
+                                    {% elif task.last_status == 'running' %}
+                                        <span class="badge bg-warning ms-1">Выполняется</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if task.last_run %}
+                                        {{ task.last_run.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        Никогда
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if task.next_run %}
+                                        {{ task.next_run.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if task.last_error %}
+                                        <span class="badge bg-danger" title="{{ task.last_error }}">Есть ошибка</span>
+                                        <button class="btn btn-sm btn-link p-0 ms-1" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ task.last_error }}">
+                                            <i class="fas fa-info-circle text-danger"></i>
+                                        </button>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% if task.last_error %}
+                            <tr class="table-danger">
+                                <td colspan="9">
+                                    <small><strong>Ошибка выполнения:</strong> {{ task.last_error }}</small>
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для добавления задачи -->
+{% if user.is_admin %}
+<div class="modal fade" id="addTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить задачу резервного копирования</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/tasks/add">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название задачи</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="agent_id" class="form-label">Агент</label>
+                            <select class="form-control" id="agent_id" name="agent_id" required>
+                                {% for agent in agents %}
+                                <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="s3_config_id" class="form-label">S3 Конфигурация</label>
+                            <select class="form-control" id="s3_config_id" name="s3_config_id" required>
+                                {% for s3 in s3_configs %}
+                                <option value="{{ s3.id }}">{{ s3.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="source_path" class="form-label">Путь к папке для резервного копирования</label>
+                        <input type="text" class="form-control" id="source_path" name="source_path" placeholder="/path/to/backup" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Расписание</label>
+                        <div class="mb-2">
+                            <label for="schedule_type" class="form-label small">Тип повторения</label>
+                            <select class="form-select" id="schedule_type" name="schedule_type" required>
+                                <option value="daily">Каждый день в выбранное время</option>
+                                <option value="weekly">Раз в неделю в выбранный день и время</option>
+                                <option value="hourly">Каждый час в выбранную минуту</option>
+                                <option value="minutely">Каждую минуту</option>
+                            </select>
+                        </div>
+                        <div class="row" id="schedule_daily_weekly">
+                            <div class="col-md-6 mb-2">
+                                <label for="schedule_hour" class="form-label small">Час</label>
+                                <select class="form-select" id="schedule_hour" name="schedule_hour">
+                                    {% for h in range(24) %}
+                                    <option value="{{ h }}" {% if h == 2 %}selected{% endif %}>{{ "%02d"|format(h) }}:00</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label for="schedule_minute" class="form-label small">Минута</label>
+                                <select class="form-select" id="schedule_minute" name="schedule_minute">
+                                    {% for m in range(0, 60, 5) %}
+                                    <option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2" id="schedule_weekly" style="display: none;">
+                            <label for="schedule_day_of_week" class="form-label small">День недели</label>
+                            <select class="form-select" id="schedule_day_of_week" name="schedule_day_of_week">
+                                <option value="0">Воскресенье</option>
+                                <option value="1" selected>Понедельник</option>
+                                <option value="2">Вторник</option>
+                                <option value="3">Среда</option>
+                                <option value="4">Четверг</option>
+                                <option value="5">Пятница</option>
+                                <option value="6">Суббота</option>
+                            </select>
+                        </div>
+                        <div class="mb-2" id="schedule_hourly" style="display: none;">
+                            <label for="schedule_minute_hourly" class="form-label small">Минута</label>
+                            <select class="form-select" id="schedule_minute_hourly" name="schedule_minute_hourly">
+                                {% for m in range(0, 60, 5) %}
+                                <option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <input type="hidden" id="schedule_cron" name="schedule_cron" value="0 2 * * *">
+                        <small class="form-text text-muted" id="schedule_preview">Cron: <code>0 2 * * *</code> (каждый день в 02:00)</small>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="create_archive" name="create_archive" checked>
+                                <label class="form-check-label" for="create_archive">
+                                    Создавать архив
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="archive_format" class="form-label">Формат архива</label>
+                            <select class="form-control" id="archive_format" name="archive_format">
+                                <option value="tar.gz">tar.gz</option>
+                                <option value="tar">tar</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_docker_compose" name="is_docker_compose">
+                            <label class="form-check-label" for="is_docker_compose">
+                                Docker Compose проект (остановить перед архивированием)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="docker_compose_path_group" style="display: none;">
+                        <label for="docker_compose_path" class="form-label">Путь к docker-compose.yml</label>
+                        <input type="text" class="form-control" id="docker_compose_path" name="docker_compose_path" placeholder="/path/to/docker-compose.yml">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="cleanup_enabled" name="cleanup_enabled">
+                                <label class="form-check-label" for="cleanup_enabled">
+                                    Включить очистку старых бэкапов
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="cleanup_days" class="form-label">Удалять бэкапы старше (дней)</label>
+                            <input type="number" class="form-control" id="cleanup_days" name="cleanup_days" value="30" min="1">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Docker Compose toggle
+    document.getElementById('is_docker_compose').addEventListener('change', function() {
+        const pathGroup = document.getElementById('docker_compose_path_group');
+        if (this.checked) {
+            pathGroup.style.display = 'block';
+        } else {
+            pathGroup.style.display = 'none';
+        }
+    });
+    
+    // Schedule type converter
+    function updateScheduleFields() {
+        const scheduleType = document.getElementById('schedule_type').value;
+        const dailyWeekly = document.getElementById('schedule_daily_weekly');
+        const weekly = document.getElementById('schedule_weekly');
+        const hourly = document.getElementById('schedule_hourly');
+        const cronInput = document.getElementById('schedule_cron');
+        const preview = document.getElementById('schedule_preview');
+        
+        // Скрываем все поля
+        dailyWeekly.style.display = 'none';
+        weekly.style.display = 'none';
+        hourly.style.display = 'none';
+        
+        let cron = '';
+        let previewText = '';
+        
+        if (scheduleType === 'minutely') {
+            cron = '* * * * *';
+            previewText = 'Cron: <code>* * * * *</code> (каждую минуту)';
+        } else if (scheduleType === 'hourly') {
+            hourly.style.display = 'block';
+            const minute = document.getElementById('schedule_minute_hourly').value;
+            cron = minute + ' * * * *';
+            previewText = 'Cron: <code>' + cron + '</code> (каждый час в ' + minute.padStart(2, '0') + ' минут)';
+        } else if (scheduleType === 'daily') {
+            dailyWeekly.style.display = 'block';
+            const hour = document.getElementById('schedule_hour').value;
+            const minute = document.getElementById('schedule_minute').value;
+            cron = minute + ' ' + hour + ' * * *';
+            previewText = 'Cron: <code>' + cron + '</code> (каждый день в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+        } else if (scheduleType === 'weekly') {
+            dailyWeekly.style.display = 'block';
+            weekly.style.display = 'block';
+            const hour = document.getElementById('schedule_hour').value;
+            const minute = document.getElementById('schedule_minute').value;
+            const dayOfWeek = document.getElementById('schedule_day_of_week').value;
+            const dayNames = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
+            cron = minute + ' ' + hour + ' * * ' + dayOfWeek;
+            previewText = 'Cron: <code>' + cron + '</code> (каждую ' + dayNames[parseInt(dayOfWeek)] + ' в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+        }
+        
+        cronInput.value = cron;
+        preview.innerHTML = previewText;
+    }
+    
+    // Привязываем обработчики событий
+    document.getElementById('schedule_type').addEventListener('change', updateScheduleFields);
+    document.getElementById('schedule_hour').addEventListener('change', updateScheduleFields);
+    document.getElementById('schedule_minute').addEventListener('change', updateScheduleFields);
+    document.getElementById('schedule_minute_hourly').addEventListener('change', updateScheduleFields);
+    document.getElementById('schedule_day_of_week').addEventListener('change', updateScheduleFields);
+    
+    // Инициализируем при загрузке
+    updateScheduleFields();
+</script>
+{% endblock %}
+
+

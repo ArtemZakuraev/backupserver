@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+
+{% block title %}О программе - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    О программе
+                </h2>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h3 class="mb-3">{{ app_name }}</h3>
+                        <p class="lead">Система управления резервным копированием для отдела развития инженерных практик</p>
+                        
+                        <hr class="my-4">
+                        
+                        <h5 class="mb-3"><i class="fas fa-info me-2"></i>Информация о версии</h5>
+                        <table class="table table-borderless">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Версия:</strong></td>
+                                    <td><span class="badge bg-primary">1.0.1</span></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Автор:</strong></td>
+                                    <td>a.zakuraev</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Дата создания:</strong></td>
+                                    <td>2025</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        
+                        <hr class="my-4">
+                        
+                        <h5 class="mb-3"><i class="fas fa-cogs me-2"></i>Основные возможности</h5>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Управление агентами резервного копирования
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Планирование задач резервного копирования с поддержкой Cron
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Резервное копирование PostgreSQL баз данных
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Интеграция с S3/MinIO хранилищами
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Восстановление резервных копий
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Мониторинг состояния агентов и дискового пространства
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Уведомления через Mattermost
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Автоматическая очистка старых резервных копий
+                            </li>
+                        </ul>
+                        
+                        <hr class="my-4">
+                        
+                        <h5 class="mb-3"><i class="fas fa-code me-2"></i>Технологии</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    <li><i class="fas fa-server me-2 text-primary"></i>Python 3.11</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>FastAPI</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>PostgreSQL</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>SQLAlchemy</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    <li><i class="fas fa-server me-2 text-primary"></i>Golang (агенты)</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>Docker / Docker Compose</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>MinIO / S3</li>
+                                    <li><i class="fas fa-server me-2 text-primary"></i>Bootstrap 5</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <i class="fas fa-shield-alt text-primary" style="font-size: 4rem;"></i>
+                                <h5 class="mt-3 mb-3">Безопасность</h5>
+                                <p class="text-muted">Все пароли и чувствительные данные шифруются перед сохранением в базе данных.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card border-success mt-3">
+                            <div class="card-body text-center">
+                                <i class="fas fa-chart-line text-success" style="font-size: 4rem;"></i>
+                                <h5 class="mt-3 mb-3">Мониторинг</h5>
+                                <p class="text-muted">Отслеживание состояния всех агентов, задач и хранилищ в реальном времени.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Инструкции по использованию -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-book me-2"></i>
+                    Инструкция по использованию
+                </h3>
+            </div>
+            <div class="card-body">
+                <!-- Сборка и установка агентов -->
+                <div class="mb-5">
+                    <h4 class="mb-3">
+                        <i class="fas fa-download text-primary me-2"></i>
+                        1. Сборка и установка агентов
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Требования:</h5>
+                        <ul>
+                            <li>Linux система (Debian/Ubuntu)</li>
+                            <li><strong>Go 1.16 или выше</strong> (для сборки, рекомендуется Go 1.21+)</li>
+                            <li>Docker и Docker Compose (опционально, для бэкапа Docker Compose проектов)</li>
+                        </ul>
+                        
+                        <div class="alert alert-warning mt-2">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Важно:</strong> Если на системе установлена старая версия Go, необходимо обновить её. Проверить версию можно командой: <code>go version</code>
+                        </div>
+                        
+                        <h5 class="mb-2 mt-3">Обновление Go (если версия слишком старая):</h5>
+                        <p>Если версия Go ниже 1.16, выполните следующие команды:</p>
+                        <pre class="bg-light p-3 rounded mt-2"><code># Удалите старую версию Go (если установлена через пакетный менеджер)
+sudo apt-get remove golang-go
+
+# Скачайте и установите последнюю версию Go
+wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+
+# Добавьте Go в PATH (добавьте в ~/.bashrc или ~/.profile)
+export PATH=$PATH:/usr/local/go/bin
+
+# Перезагрузите переменные окружения
+source ~/.bashrc
+
+# Проверьте версию
+go version</code></pre>
+                        
+                        <h5 class="mb-2 mt-3">Сборка DEB пакета:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в директорию агента:
+                                <pre class="bg-light p-2 rounded mt-1"><code>cd agent</code></pre>
+                            </li>
+                            <li class="mb-2">Запустите скрипт сборки:
+                                <pre class="bg-light p-2 rounded mt-1"><code>chmod +x build.sh
+./build.sh</code></pre>
+                            </li>
+                            <li class="mb-2">После сборки будет создан файл <code>backup-server-agent_1.0.0_amd64.deb</code></li>
+                        </ol>
+                        
+                        <h5 class="mb-2 mt-3">Установка на целевом сервере:</h5>
+                        <ol>
+                            <li class="mb-2">Скопируйте DEB пакет на целевой сервер</li>
+                            <li class="mb-2">Установите пакет:
+                                <pre class="bg-light p-2 rounded mt-1"><code>sudo dpkg -i backup-server-agent_1.0.0_amd64.deb</code></pre>
+                            </li>
+                            <li class="mb-2">Проверьте статус сервиса:
+                                <pre class="bg-light p-2 rounded mt-1"><code>sudo systemctl status backup-server-agent</code></pre>
+                            </li>
+                        </ol>
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Примечание:</strong> Агент автоматически создаст конфигурационный файл в <code>/etc/backupserveragent/config.json</code> и запустится как systemd сервис на порту <strong>11540</strong>.
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Подключение и настройка агентов -->
+                <div class="mb-5">
+                    <h4 class="mb-3">
+                        <i class="fas fa-network-wired text-success me-2"></i>
+                        2. Подключение и настройка агентов
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Добавление агента на сервере:</h5>
+                        <ol>
+                            <li class="mb-2">Войдите в веб-интерфейс сервера резервного копирования</li>
+                            <li class="mb-2">Перейдите в раздел <strong>"Агенты"</strong></li>
+                            <li class="mb-2">Нажмите кнопку <strong>"Добавить агента"</strong></li>
+                            <li class="mb-2">Заполните форму:
+                                <ul class="mt-2">
+                                    <li><strong>Имя агента:</strong> Произвольное имя для идентификации</li>
+                                    <li><strong>IP адрес:</strong> IP адрес сервера, на котором установлен агент</li>
+                                    <li><strong>Порт:</strong> 11540 (по умолчанию)</li>
+                                    <li><strong>Хостнейм:</strong> Опционально, имя хоста сервера</li>
+                                </ul>
+                            </li>
+                            <li class="mb-2">Нажмите <strong>"Добавить"</strong></li>
+                        </ol>
+                        
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Важно:</strong> Убедитесь, что:
+                            <ul class="mb-0 mt-2">
+                                <li>Агент запущен и доступен на указанном IP и порту</li>
+                                <li>Между сервером и агентом есть сетевое соединение</li>
+                                <li>Порт 11540 открыт в файрволе (если используется)</li>
+                            </ul>
+                        </div>
+                        
+                        <h5 class="mb-2 mt-3">Проверка подключения:</h5>
+                        <p>После добавления агента сервер автоматически начнет опрашивать его каждую минуту. Статус агента можно проверить в разделе <strong>"Агенты"</strong>:</p>
+                        <ul>
+                            <li><span class="badge bg-success">Онлайн</span> - агент доступен и работает</li>
+                            <li><span class="badge bg-danger">Офлайн</span> - агент недоступен, проверьте подключение</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Настройка бэкапов -->
+                <div class="mb-5">
+                    <h4 class="mb-3">
+                        <i class="fas fa-tasks text-info me-2"></i>
+                        3. Настройка резервного копирования
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Настройка S3 хранилища:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в раздел <strong>"S3 Конфигурации"</strong> (только для администраторов)</li>
+                            <li class="mb-2">Нажмите <strong>"Добавить конфигурацию"</strong></li>
+                            <li class="mb-2">Заполните параметры:
+                                <ul class="mt-2">
+                                    <li><strong>Название:</strong> Имя конфигурации</li>
+                                    <li><strong>Endpoint:</strong> Адрес S3/MinIO сервера (например, <code>http://minio:9000</code>)</li>
+                                    <li><strong>Access Key:</strong> Ключ доступа</li>
+                                    <li><strong>Secret Key:</strong> Секретный ключ</li>
+                                    <li><strong>Bucket Name:</strong> Имя bucket для хранения бэкапов</li>
+                                    <li><strong>Регион:</strong> Регион S3 (по умолчанию: us-east-1)</li>
+                                    <li><strong>Использовать SSL:</strong> Включите, если используется HTTPS</li>
+                                </ul>
+                            </li>
+                        </ol>
+                        
+                        <h5 class="mb-2 mt-3">Создание задачи резервного копирования:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в раздел <strong>"Задачи"</strong></li>
+                            <li class="mb-2">Нажмите <strong>"Добавить задачу"</strong></li>
+                            <li class="mb-2">Заполните параметры задачи:
+                                <ul class="mt-2">
+                                    <li><strong>Название задачи:</strong> Имя задачи</li>
+                                    <li><strong>Агент:</strong> Выберите агента из списка</li>
+                                    <li><strong>S3 Конфигурация:</strong> Выберите настроенное S3 хранилище</li>
+                                    <li><strong>Путь к папке:</strong> Путь на агенте, который нужно бэкапить (например, <code>/home/user/data</code>)</li>
+                                    <li><strong>Расписание:</strong> Выберите тип повторения и время выполнения</li>
+                                    <li><strong>Создавать архив:</strong> Включите для создания tar/tar.gz архива</li>
+                                    <li><strong>Формат архива:</strong> tar.gz или tar</li>
+                                    <li><strong>Docker Compose проект:</strong> Включите, если нужно останавливать Docker Compose перед бэкапом</li>
+                                    <li><strong>Очистка старых бэкапов:</strong> Включите для автоматического удаления старых бэкапов</li>
+                                    <li><strong>Хранить бэкапы (дней):</strong> Количество дней хранения</li>
+                                </ul>
+                            </li>
+                            <li class="mb-2">Нажмите <strong>"Добавить"</strong></li>
+                        </ol>
+                        
+                        <div class="alert alert-success mt-3">
+                            <i class="fas fa-check-circle me-2"></i>
+                            После создания задачи сервер автоматически отправит конфигурацию агенту, и агент добавит задачу в свой cron для выполнения по расписанию.
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Настройка PostgreSQL бэкапов -->
+                <div class="mb-5">
+                    <h4 class="mb-3">
+                        <i class="fas fa-database text-warning me-2"></i>
+                        4. Настройка резервного копирования PostgreSQL
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Создание задачи PostgreSQL бэкапа:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в раздел <strong>"PostgreSQL Бэкапы"</strong></li>
+                            <li class="mb-2">Нажмите <strong>"Добавить задачу"</strong></li>
+                            <li class="mb-2">Заполните параметры подключения:
+                                <ul class="mt-2">
+                                    <li><strong>Название задачи:</strong> Имя задачи</li>
+                                    <li><strong>S3 Конфигурация:</strong> Выберите S3 хранилище</li>
+                                    <li><strong>Хост:</strong> IP адрес или hostname PostgreSQL сервера</li>
+                                    <li><strong>Порт:</strong> Порт PostgreSQL (по умолчанию: 5432)</li>
+                                    <li><strong>Пользователь:</strong> Имя пользователя БД</li>
+                                    <li><strong>Пароль:</strong> Пароль пользователя БД</li>
+                                    <li><strong>Имя базы данных:</strong> Название базы данных для бэкапа</li>
+                                </ul>
+                            </li>
+                            <li class="mb-2">Настройте параметры бэкапа:
+                                <ul class="mt-2">
+                                    <li><strong>Формат бэкапа:</strong> Custom (рекомендуется), Plain SQL или Tar</li>
+                                    <li><strong>Уровень сжатия:</strong> 0-9 (для Custom формата)</li>
+                                    <li><strong>Включать схему/данные/роли/табличные пространства:</strong> Выберите нужные опции</li>
+                                </ul>
+                            </li>
+                            <li class="mb-2">Настройте расписание и параметры очистки</li>
+                            <li class="mb-2">Нажмите <strong>"Добавить"</strong></li>
+                        </ol>
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Примечание:</strong> Пароль базы данных шифруется перед сохранением в базе данных сервера.
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Восстановление бэкапов -->
+                <div class="mb-5">
+                    <h4 class="mb-3">
+                        <i class="fas fa-undo text-danger me-2"></i>
+                        5. Восстановление резервных копий
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Восстановление PostgreSQL базы данных:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в раздел <strong>"Восстановление"</strong></li>
+                            <li class="mb-2">Выберите вкладку <strong>"Восстановление PostgreSQL"</strong></li>
+                            <li class="mb-2">Выберите задачу резервного копирования из списка</li>
+                            <li class="mb-2">Выберите резервную копию из списка доступных бэкапов</li>
+                            <li class="mb-2">(Опционально) Укажите целевую базу данных, если нужно восстановить в другую БД</li>
+                            <li class="mb-2">Нажмите <strong>"Восстановить базу данных"</strong></li>
+                        </ol>
+                        
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Внимание:</strong> Восстановление может перезаписать существующие данные в целевой базе данных. Убедитесь, что вы выбрали правильный бэкап.
+                        </div>
+                        
+                        <h5 class="mb-2 mt-3">Восстановление папок на агент:</h5>
+                        <ol>
+                            <li class="mb-2">Перейдите в раздел <strong>"Восстановление"</strong></li>
+                            <li class="mb-2">Выберите вкладку <strong>"Восстановление папок"</strong></li>
+                            <li class="mb-2">Выберите агента, на который нужно восстановить данные</li>
+                            <li class="mb-2">Выберите S3 хранилище, где находится бэкап</li>
+                            <li class="mb-2">Введите путь к бэкапу в S3 (полное имя файла, например: <code>192_168_1_10_home_user_data_20231027_103000.tar.gz</code>)</li>
+                            <li class="mb-2">Укажите целевой путь на агенте, куда будет восстановлена папка</li>
+                            <li class="mb-2">Нажмите <strong>"Восстановить папку"</strong></li>
+                        </ol>
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Примечание:</strong> Для восстановления папок требуется поддержка со стороны агента. Агент должен иметь доступ к S3 хранилищу и возможность распаковывать архивы.
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Дополнительная информация -->
+                <div class="mb-3">
+                    <h4 class="mb-3">
+                        <i class="fas fa-question-circle text-secondary me-2"></i>
+                        Дополнительная информация
+                    </h4>
+                    <div class="ms-4">
+                        <h5 class="mb-2">Мониторинг и уведомления:</h5>
+                        <ul>
+                            <li>Сервер автоматически опрашивает агентов каждую минуту для получения информации о состоянии системы</li>
+                            <li>В разделе <strong>"Настройки"</strong> можно настроить уведомления через Mattermost</li>
+                            <li>Ежедневные отчеты о бэкапах можно настроить в разделе настроек</li>
+                        </ul>
+                        
+                        <h5 class="mb-2 mt-3">Логи и отладка:</h5>
+                        <ul>
+                            <li>Логи агента: <code>journalctl -u backup-server-agent -f</code></li>
+                            <li>Конфигурация агента: <code>/etc/backupserveragent/config.json</code></li>
+                            <li>История выполнения задач доступна в разделе <strong>"Задачи"</strong> и <strong>"PostgreSQL Бэкапы"</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

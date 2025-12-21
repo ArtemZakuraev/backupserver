@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}Агенты - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-network-wired me-2"></i>Управление агентами</h4>
+                {% if user.is_admin %}
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAgentModal">
+                    <i class="fas fa-plus me-2"></i>Добавить агента
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Имя</th>
+                                <th>IP адрес</th>
+                                <th>Порт</th>
+                                <th>Хостнейм</th>
+                                <th>Статус</th>
+                                <th>Диск (свободно/всего)</th>
+                                <th>Память (свободно/всего)</th>
+                                <th>CPU</th>
+                                <th>Последний контакт</th>
+                                {% if user.is_admin %}
+                                <th>Действия</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in agents %}
+                            <tr data-bs-toggle="collapse" data-bs-target="#disks-{{ item.agent.id }}" style="cursor: pointer;">
+                                <td>{{ item.agent.id }}</td>
+                                <td>{{ item.agent.name }}</td>
+                                <td>{{ item.agent.ip_address }}</td>
+                                <td>{{ item.agent.port }}</td>
+                                <td>{{ item.agent.hostname or '-' }}</td>
+                                <td>
+                                    {% if item.status and item.status.is_online %}
+                                        <span class="badge bg-success">Онлайн</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Офлайн</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.status %}
+                                        {{ "%.2f"|format(item.status.disk_free_gb or 0) }} / {{ "%.2f"|format(item.status.disk_total_gb or 0) }} GB
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.status %}
+                                        {{ "%.2f"|format(item.status.memory_free_mb or 0) }} / {{ "%.2f"|format(item.status.memory_total_mb or 0) }} MB
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.status %}
+                                        {{ "%.1f"|format(item.status.cpu_load_percent or 0) }}%
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.agent.last_seen %}
+                                        {{ item.agent.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        Никогда
+                                    {% endif %}
+                                </td>
+                                {% if user.is_admin %}
+                                <td onclick="event.stopPropagation();">
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="editAgent({{ item.agent.id }}, '{{ item.agent.name }}', '{{ item.agent.ip_address }}', {{ item.agent.port }}, '{{ item.agent.hostname or '' }}', {{ 'true' if item.agent.is_active else 'false' }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteAgent({{ item.agent.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% if item.disks %}
+                            <tr class="collapse" id="disks-{{ item.agent.id }}">
+                                <td colspan="{% if user.is_admin %}11{% else %}10{% endif %}">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6 class="mb-0"><i class="fas fa-hdd me-2"></i>Диски агента "{{ item.agent.name }}"</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Устройство</th>
+                                                            <th>Точка монтирования</th>
+                                                            <th>Файловая система</th>
+                                                            <th>Всего</th>
+                                                            <th>Использовано</th>
+                                                            <th>Доступно</th>
+                                                            <th>Использовано %</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for disk in item.disks %}
+                                                        <tr>
+                                                            <td><code>{{ disk.device }}</code></td>
+                                                            <td><code>{{ disk.mount_point }}</code></td>
+                                                            <td>{{ disk.filesystem }}</td>
+                                                            <td>{{ "%.2f"|format(disk.total_gb) }} GB</td>
+                                                            <td>{{ "%.2f"|format(disk.used_gb) }} GB</td>
+                                                            <td>
+                                                                <span class="{% if disk.used_percent > 90 %}text-danger{% elif disk.used_percent > 75 %}text-warning{% else %}text-success{% endif %}">
+                                                                    {{ "%.2f"|format(disk.available_gb) }} GB
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                <div class="progress" style="height: 20px;">
+                                                                    <div class="progress-bar {% if disk.used_percent > 90 %}bg-danger{% elif disk.used_percent > 75 %}bg-warning{% else %}bg-success{% endif %}" 
+                                                                         role="progressbar" 
+                                                                         style="width: {{ disk.used_percent }}%"
+                                                                         aria-valuenow="{{ disk.used_percent }}" 
+                                                                         aria-valuemin="0" 
+                                                                         aria-valuemax="100">
+                                                                        {{ "%.1f"|format(disk.used_percent) }}%
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для добавления агента -->
+{% if user.is_admin %}
+<div class="modal fade" id="addAgentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить агента</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/agents/add">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Имя агента</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ip_address" class="form-label">IP адрес</label>
+                        <input type="text" class="form-control" id="ip_address" name="ip_address" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="port" class="form-label">Порт</label>
+                        <input type="number" class="form-control" id="port" name="port" value="11540" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="hostname" class="form-label">Хостнейм (опционально)</label>
+                        <input type="text" class="form-control" id="hostname" name="hostname">
+                    </div>
+                    <div class="mb-3">
+                        <label for="storage_config_id" class="form-label">Хранилище по умолчанию (опционально)</label>
+                        <select class="form-control" id="storage_config_id" name="storage_config_id">
+                            <option value="">Не выбрано</option>
+                            {% for storage in available_storage %}
+                            <option value="{{ storage.id }}">
+                                {{ storage.name }} ({{ storage.storage_type|upper }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Выберите хранилище, которое будет использоваться по умолчанию для этого агента</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для редактирования агента -->
+{% if user.is_admin %}
+<div class="modal fade" id="editAgentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать агента</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editAgentForm">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_agent_id" name="agent_id">
+                    <div class="mb-3">
+                        <label for="edit_name" class="form-label">Имя агента</label>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_ip_address" class="form-label">IP адрес</label>
+                        <input type="text" class="form-control" id="edit_ip_address" name="ip_address" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_port" class="form-label">Порт</label>
+                        <input type="number" class="form-control" id="edit_port" name="port" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_hostname" class="form-label">Хостнейм (опционально)</label>
+                        <input type="text" class="form-control" id="edit_hostname" name="hostname">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_is_active" name="is_active" checked>
+                            <label class="form-check-label" for="edit_is_active">
+                                Активен
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function editAgent(id, name, ip_address, port, hostname, is_active) {
+    document.getElementById('edit_agent_id').value = id;
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_ip_address').value = ip_address;
+    document.getElementById('edit_port').value = port;
+    document.getElementById('edit_hostname').value = hostname || '';
+    document.getElementById('edit_is_active').checked = is_active === 'true';
+    document.getElementById('editAgentForm').action = '/agents/' + id + '/edit';
+    new bootstrap.Modal(document.getElementById('editAgentModal')).show();
+}
+
+function deleteAgent(id) {
+    if (confirm('Вы уверены, что хотите удалить этого агента?')) {
+        fetch('/api/agents/' + id, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при удалении агента');
+            }
+        });
+    }
+}
+</script>
+{% endif %}
+{% endblock %}
+
+
+
+
+
+

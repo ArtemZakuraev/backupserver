@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}Восстановление резервных копий - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2 class="mb-0">
+                    <i class="fas fa-undo me-2"></i>
+                    Восстановление резервных копий
+                </h2>
+            </div>
+            <div class="card-body">
+                <ul class="nav nav-tabs" id="restoreTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="postgres-tab" data-bs-toggle="tab" data-bs-target="#postgres" type="button" role="tab">
+                            <i class="fas fa-database me-2"></i>Восстановление PostgreSQL
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="folders-tab" data-bs-toggle="tab" data-bs-target="#folders" type="button" role="tab">
+                            <i class="fas fa-folder me-2"></i>Восстановление папок
+                        </button>
+                    </li>
+                </ul>
+                
+                <div class="tab-content mt-4" id="restoreTabsContent">
+                    <!-- PostgreSQL Restore Tab -->
+                    <div class="tab-pane fade show active" id="postgres" role="tabpanel">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="mb-3">Восстановление базы данных PostgreSQL</h5>
+                                <form id="postgresRestoreForm">
+                                    <div class="mb-3">
+                                        <label for="pg_task_select" class="form-label">Задача резервного копирования</label>
+                                        <select class="form-select" id="pg_task_select" name="task_id" required>
+                                            <option value="">Выберите задачу...</option>
+                                            {% for task in pg_tasks %}
+                                            <option value="{{ task.id }}">{{ task.name }} ({{ task.database }} на {{ task.host }})</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="pg_backup_select" class="form-label">Резервная копия</label>
+                                        <select class="form-select" id="pg_backup_select" name="s3_path" required disabled>
+                                            <option value="">Сначала выберите задачу...</option>
+                                        </select>
+                                        <small class="form-text text-muted">Загрузка списка бэкапов...</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="pg_target_database" class="form-label">Целевая база данных (опционально)</label>
+                                        <input type="text" class="form-control" id="pg_target_database" name="target_database" placeholder="Оставьте пустым для восстановления в исходную БД">
+                                        <small class="form-text text-muted">Если указано, данные будут восстановлены в указанную базу данных</small>
+                                    </div>
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>Внимание:</strong> Восстановление может перезаписать существующие данные в целевой базе данных. Убедитесь, что вы выбрали правильный бэкап.
+                                    </div>
+                                    <button type="submit" class="btn btn-danger">
+                                        <i class="fas fa-undo me-2"></i>Восстановить базу данных
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Folders Restore Tab -->
+                    <div class="tab-pane fade" id="folders" role="tabpanel">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="mb-3">Восстановление папок на агент</h5>
+                                <form id="foldersRestoreForm">
+                                    <div class="mb-3">
+                                        <label for="folder_agent_select" class="form-label">Агент</label>
+                                        <select class="form-select" id="folder_agent_select" name="agent_id" required>
+                                            <option value="">Выберите агента...</option>
+                                            {% for agent in agents %}
+                                            <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="folder_s3_select" class="form-label">S3 хранилище</label>
+                                        <select class="form-select" id="folder_s3_select" name="s3_config_id" required>
+                                            <option value="">Выберите S3 хранилище...</option>
+                                            {% for s3 in s3_configs %}
+                                            <option value="{{ s3.id }}">{{ s3.name }} ({{ s3.bucket_name }})</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="folder_backup_path" class="form-label">Путь к бэкапу в S3</label>
+                                        <input type="text" class="form-control" id="folder_backup_path" name="s3_path" placeholder="192_168_1_10_home_user_data_20231027_103000.tar.gz" required>
+                                        <small class="form-text text-muted">Введите полное имя файла бэкапа из S3</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="folder_target_path" class="form-label">Целевой путь на агенте</label>
+                                        <input type="text" class="form-control" id="folder_target_path" name="target_path" placeholder="/path/to/restore" required>
+                                        <small class="form-text text-muted">Путь, куда будет восстановлена папка</small>
+                                    </div>
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>Внимание:</strong> Восстановление может перезаписать существующие файлы в целевой папке. Убедитесь, что путь указан правильно.
+                                    </div>
+                                    <button type="submit" class="btn btn-danger">
+                                        <i class="fas fa-undo me-2"></i>Восстановить папку
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// PostgreSQL Restore
+document.getElementById('pg_task_select').addEventListener('change', function() {
+    const taskId = this.value;
+    const backupSelect = document.getElementById('pg_backup_select');
+    const backupSelectParent = backupSelect.parentElement;
+    
+    if (!taskId) {
+        backupSelect.disabled = true;
+        backupSelect.innerHTML = '<option value="">Сначала выберите задачу...</option>';
+        return;
+    }
+    
+    backupSelect.disabled = true;
+    backupSelect.innerHTML = '<option value="">Загрузка...</option>';
+    
+    fetch(`/api/postgres-backup-tasks/${taskId}/backups`)
+        .then(response => response.json())
+        .then(data => {
+            backupSelect.innerHTML = '<option value="">Выберите бэкап...</option>';
+            if (data.backups && data.backups.length > 0) {
+                data.backups.forEach(backup => {
+                    const option = document.createElement('option');
+                    option.value = backup.name;
+                    option.textContent = `${backup.name} (${(backup.size / 1024 / 1024).toFixed(2)} MB, ${new Date(backup.last_modified).toLocaleString()})`;
+                    backupSelect.appendChild(option);
+                });
+            } else {
+                backupSelect.innerHTML = '<option value="">Нет доступных бэкапов</option>';
+            }
+            backupSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading backups:', error);
+            backupSelect.innerHTML = '<option value="">Ошибка загрузки бэкапов</option>';
+            backupSelect.disabled = false;
+        });
+});
+
+document.getElementById('postgresRestoreForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const taskId = document.getElementById('pg_task_select').value;
+    const s3Path = document.getElementById('pg_backup_select').value;
+    const targetDatabase = document.getElementById('pg_target_database').value;
+    
+    if (!taskId || !s3Path) {
+        alert('Пожалуйста, выберите задачу и бэкап');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите восстановить базу данных? Это действие может перезаписать существующие данные.')) {
+        return;
+    }
+    
+    fetch(`/api/postgres-backup-tasks/${taskId}/restore`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            task_id: parseInt(taskId),
+            s3_path: s3Path,
+            target_database: targetDatabase || null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success || data.message) {
+            alert('База данных восстановлена успешно!');
+            document.getElementById('postgresRestoreForm').reset();
+            document.getElementById('pg_backup_select').disabled = true;
+            document.getElementById('pg_backup_select').innerHTML = '<option value="">Сначала выберите задачу...</option>';
+        } else {
+            alert('Ошибка: ' + (data.detail || data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка: ' + error);
+    });
+});
+
+// Folders Restore
+document.getElementById('foldersRestoreForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const agentId = document.getElementById('folder_agent_select').value;
+    const s3ConfigId = document.getElementById('folder_s3_select').value;
+    const s3Path = document.getElementById('folder_backup_path').value;
+    const targetPath = document.getElementById('folder_target_path').value;
+    
+    if (!agentId || !s3ConfigId || !s3Path || !targetPath) {
+        alert('Пожалуйста, заполните все поля');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите восстановить папку? Это действие может перезаписать существующие файлы.')) {
+        return;
+    }
+    
+    fetch(`/api/restore/folder`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            agent_id: parseInt(agentId),
+            s3_config_id: parseInt(s3ConfigId),
+            s3_path: s3Path,
+            target_path: targetPath
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success || data.message) {
+            alert('Папка восстановлена успешно!');
+            document.getElementById('foldersRestoreForm').reset();
+        } else {
+            alert('Ошибка: ' + (data.detail || data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка: ' + error);
+    });
+});
+</script>
+{% endblock %}
+
+
+
+
+
+

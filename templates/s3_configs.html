@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block title %}S3 Конфигурации - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-cloud me-2"></i>Управление S3 конфигурациями</h4>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addS3Modal">
+                    <i class="fas fa-plus me-2"></i>Добавить конфигурацию
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Endpoint</th>
+                                <th>Bucket</th>
+                                <th>Регион</th>
+                                <th>Статус</th>
+                                <th>Использовано / Всего</th>
+                                <th>Свободно</th>
+                                <th>Последняя проверка</th>
+                                <th>SSL</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for config in s3_configs %}
+                            <tr>
+                                <td>{{ config.id }}</td>
+                                <td><strong>{{ config.name }}</strong></td>
+                                <td><code>{{ config.endpoint }}</code></td>
+                                <td><code>{{ config.bucket_name }}</code></td>
+                                <td>{{ config.region or '-' }}</td>
+                                <td>
+                                    {% if config.connection_error %}
+                                        <span class="badge bg-danger" title="{{ config.connection_error }}">Ошибка подключения</span>
+                                    {% elif config.last_check %}
+                                        <span class="badge bg-success">Доступно</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">Не проверено</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.used_space_gb is not none and config.total_space_gb is not none %}
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar {% if (config.used_space_gb / config.total_space_gb * 100) > 90 %}bg-danger{% elif (config.used_space_gb / config.total_space_gb * 100) > 75 %}bg-warning{% else %}bg-success{% endif %}" 
+                                                 role="progressbar" 
+                                                 style="width: {{ (config.used_space_gb / config.total_space_gb * 100) }}%"
+                                                 aria-valuenow="{{ config.used_space_gb }}" 
+                                                 aria-valuemin="0" 
+                                                 aria-valuemax="{{ config.total_space_gb }}">
+                                                {{ "%.2f"|format(config.used_space_gb) }} GB
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">из {{ "%.2f"|format(config.total_space_gb) }} GB</small>
+                                    {% elif config.used_space_gb is not none %}
+                                        <span>{{ "%.2f"|format(config.used_space_gb) }} GB</span>
+                                        <small class="text-muted d-block">(всего неизвестно)</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.free_space_gb is not none %}
+                                        <span class="{% if config.free_space_gb < 10 %}text-danger{% elif config.free_space_gb < 50 %}text-warning{% else %}text-success{% endif %}">
+                                            {{ "%.2f"|format(config.free_space_gb) }} GB
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.last_check %}
+                                        {{ config.last_check.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        <span class="text-muted">Никогда</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.use_ssl %}
+                                        <span class="badge bg-success">Да</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Нет</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-warning" onclick="editS3Config({{ config.id }}, '{{ config.name }}', '{{ config.endpoint }}', '{{ config.access_key }}', '{{ config.secret_key }}', '{{ config.bucket_name }}', '{{ config.region }}', {{ 'true' if config.use_ssl else 'false' }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteS3Config({{ config.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                            </tr>
+                            {% if config.connection_error %}
+                            <tr class="table-danger">
+                                <td colspan="11">
+                                    <small><strong>Ошибка подключения:</strong> {{ config.connection_error }}</small>
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для добавления S3 конфигурации -->
+<div class="modal fade" id="addS3Modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить S3 конфигурацию</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/s3-configs/add">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="endpoint" class="form-label">Endpoint</label>
+                        <input type="text" class="form-control" id="endpoint" name="endpoint" placeholder="http://minio:9000" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="access_key" class="form-label">Access Key</label>
+                        <input type="text" class="form-control" id="access_key" name="access_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="secret_key" class="form-label">Secret Key</label>
+                        <input type="password" class="form-control" id="secret_key" name="secret_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="bucket_name" class="form-label">Bucket Name</label>
+                        <input type="text" class="form-control" id="bucket_name" name="bucket_name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="region" class="form-label">Регион</label>
+                            <input type="text" class="form-control" id="region" name="region" value="us-east-1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="use_ssl" name="use_ssl">
+                                <label class="form-check-label" for="use_ssl">
+                                    Использовать SSL
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для редактирования S3 конфигурации -->
+<div class="modal fade" id="editS3Modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать S3 конфигурацию</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editS3Form">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_s3_config_id" name="config_id">
+                    <div class="mb-3">
+                        <label for="edit_s3_name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="edit_s3_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_s3_endpoint" class="form-label">Endpoint</label>
+                        <input type="text" class="form-control" id="edit_s3_endpoint" name="endpoint" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_s3_access_key" class="form-label">Access Key</label>
+                        <input type="text" class="form-control" id="edit_s3_access_key" name="access_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_s3_secret_key" class="form-label">Secret Key</label>
+                        <input type="password" class="form-control" id="edit_s3_secret_key" name="secret_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_s3_bucket_name" class="form-label">Bucket Name</label>
+                        <input type="text" class="form-control" id="edit_s3_bucket_name" name="bucket_name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_s3_region" class="form-label">Регион</label>
+                            <input type="text" class="form-control" id="edit_s3_region" name="region">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="edit_s3_use_ssl" name="use_ssl">
+                                <label class="form-check-label" for="edit_s3_use_ssl">
+                                    Использовать SSL
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function editS3Config(id, name, endpoint, access_key, secret_key, bucket_name, region, use_ssl) {
+    document.getElementById('edit_s3_config_id').value = id;
+    document.getElementById('edit_s3_name').value = name;
+    document.getElementById('edit_s3_endpoint').value = endpoint;
+    document.getElementById('edit_s3_access_key').value = access_key;
+    document.getElementById('edit_s3_secret_key').value = secret_key;
+    document.getElementById('edit_s3_bucket_name').value = bucket_name;
+    document.getElementById('edit_s3_region').value = region || 'us-east-1';
+    document.getElementById('edit_s3_use_ssl').checked = use_ssl === true || use_ssl === 'true';
+    document.getElementById('editS3Form').action = '/s3-configs/' + id + '/edit';
+    new bootstrap.Modal(document.getElementById('editS3Modal')).show();
+}
+
+function deleteS3Config(id) {
+    if (confirm('Вы уверены, что хотите удалить эту S3 конфигурацию?')) {
+        fetch('/api/s3-configs/' + id, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при удалении S3 конфигурации');
+            }
+        });
+    }
+}
+
+function editPostgresTask(id) {
+    // Загружаем данные задачи через API и открываем модальное окно редактирования
+    fetch('/api/postgres-backup-tasks/' + id)
+        .then(response => response.json())
+        .then(task => {
+            // Здесь нужно создать модальное окно для редактирования задачи PostgreSQL
+            // Пока просто перенаправляем на страницу редактирования
+            window.location.href = '/postgres-backups/' + id + '/edit';
+        });
+}
+
+function deletePostgresTask(id) {
+    if (confirm('Вы уверены, что хотите удалить эту задачу PostgreSQL бэкапа?')) {
+        fetch('/api/postgres-backup-tasks/' + id, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при удалении задачи');
+            }
+        });
+    }
+}
+</script>
+{% endblock %}
+
+

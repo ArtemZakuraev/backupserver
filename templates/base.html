@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Modern 1C-style CSS -->
+    <style>
+        :root {
+            --1c-primary: #0078D4;
+            --1c-primary-dark: #0066B8;
+            --1c-primary-light: #005A9E;
+            --1c-gray-50: #FAFAFA;
+            --1c-gray-100: #F5F5F5;
+            --1c-gray-200: #EEEEEE;
+            --1c-gray-300: #E0E0E0;
+            --1c-gray-400: #BDBDBD;
+            --1c-gray-500: #9E9E9E;
+            --1c-gray-600: #757575;
+            --1c-gray-700: #616161;
+            --1c-gray-800: #424242;
+            --1c-gray-900: #212121;
+            --1c-text: #212121;
+            --1c-text-light: #616161;
+            --1c-text-disabled: #9E9E9E;
+            --1c-success: #4CAF50;
+            --1c-warning: #FF9800;
+            --1c-error: #F44336;
+            --1c-info: #2196F3;
+            --1c-border: #E0E0E0;
+            --1c-shadow: rgba(0, 0, 0, 0.1);
+            --1c-shadow-hover: rgba(0, 0, 0, 0.15);
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: var(--1c-gray-50);
+            color: var(--1c-text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .app-header {
+            background: #FFFFFF;
+            border-bottom: 1px solid var(--1c-border);
+            padding: 0.75rem 0;
+        }
+        
+        .app-title {
+            color: var(--1c-primary);
+            font-weight: 600;
+            font-size: clamp(1rem, 2.5vw, 1.5rem);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: font-size 0.3s ease;
+        }
+        
+        .app-title i {
+            font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+        }
+        
+        @media (max-width: 768px) {
+            .app-title {
+                font-size: clamp(0.9rem, 2vw, 1.2rem);
+            }
+            .app-title i {
+                font-size: clamp(1rem, 2vw, 1.3rem);
+            }
+        }
+        
+        .navbar {
+            background: #FFFFFF !important;
+            border-bottom: 3px solid var(--1c-primary);
+            box-shadow: 0 2px 4px var(--1c-shadow);
+            padding: 0.5rem 0;
+        }
+        
+        .navbar-brand {
+            display: none;
+        }
+        
+        .navbar-toggler {
+            border: none;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .navbar-toggler:focus {
+            box-shadow: none;
+        }
+        
+        .navbar-nav .dropdown-menu {
+            border: none;
+            box-shadow: 0 2px 8px var(--1c-shadow);
+        }
+        
+        .nav-link {
+            color: var(--1c-text) !important;
+            transition: all 0.2s ease;
+            padding: 0.5rem 0.75rem !important;
+            font-weight: 500;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        
+        .nav-link i {
+            min-width: 16px;
+        }
+        
+        @media (max-width: 992px) {
+            .nav-link {
+                padding: 0.5rem 0.5rem !important;
+                font-size: 0.9rem;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .nav-link span.nav-text {
+                display: none;
+            }
+            .nav-link i {
+                margin-right: 0 !important;
+            }
+        }
+        
+        .nav-link:hover {
+            background: var(--1c-gray-100);
+            color: var(--1c-primary) !important;
+        }
+        
+        .nav-link.active {
+            background: var(--1c-primary);
+            color: #FFFFFF !important;
+        }
+        
+        .card {
+            background: #FFFFFF !important;
+            border: 1px solid var(--1c-border);
+            border-radius: 4px;
+            box-shadow: 0 1px 3px var(--1c-shadow);
+            transition: all 0.2s ease;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card:hover {
+            box-shadow: 0 4px 6px var(--1c-shadow-hover);
+        }
+        
+        .card-header {
+            background: var(--1c-gray-100) !important;
+            border-bottom: 2px solid var(--1c-primary);
+            color: var(--1c-text);
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+            font-size: 1rem;
+        }
+        
+        .card-body {
+            padding: 1.25rem;
+        }
+        
+        .btn-primary {
+            background: var(--1c-primary);
+            border: none;
+            color: #FFFFFF;
+            font-weight: 500;
+            padding: 0.5rem 1.25rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 120, 212, 0.3);
+        }
+        
+        .btn-primary:hover {
+            background: var(--1c-primary-dark);
+            box-shadow: 0 4px 8px rgba(0, 120, 212, 0.4);
+            transform: translateY(-1px);
+        }
+        
+        .form-control {
+            background: #FFFFFF;
+            border: 1px solid var(--1c-border);
+            color: var(--1c-text);
+            border-radius: 4px;
+            padding: 0.5rem 0.75rem;
+            transition: all 0.2s ease;
+        }
+        
+        .form-control:focus {
+            border-color: var(--1c-primary);
+            box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+            outline: none;
+        }
+        
+        .table {
+            color: var(--1c-text);
+            background: #FFFFFF;
+        }
+        
+        .table thead {
+            background: var(--1c-gray-100);
+        }
+        
+        .table thead th {
+            border-bottom: 2px solid var(--1c-primary);
+            color: var(--1c-text);
+            font-weight: 600;
+            padding: 0.75rem;
+        }
+        
+        .table tbody tr:hover {
+            background: var(--1c-gray-50);
+        }
+        
+        .alert {
+            border-radius: 4px;
+            border: none;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-danger {
+            background: #FFEBEE;
+            color: #C62828;
+            border-left: 4px solid var(--1c-error);
+        }
+        
+        .alert-success {
+            background: #E8F5E9;
+            color: #2E7D32;
+            border-left: 4px solid var(--1c-success);
+        }
+        
+        .badge {
+            font-weight: 500;
+            padding: 0.35rem 0.65rem;
+            border-radius: 4px;
+        }
+        
+        .badge.bg-success {
+            background: var(--1c-success) !important;
+        }
+        
+        .badge.bg-danger {
+            background: var(--1c-error) !important;
+        }
+        
+        .badge.bg-warning {
+            background: var(--1c-warning) !important;
+        }
+        
+        .badge.bg-info {
+            background: var(--1c-info) !important;
+        }
+        
+        .footer {
+            background: #FFFFFF;
+            border-top: 1px solid var(--1c-border);
+            color: var(--1c-text-light);
+            padding: 1rem 0;
+            margin-top: 2rem;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #FFFFFF;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- App Title Header -->
+    <div class="app-header">
+        <div class="container">
+            <h1 class="app-title">
+                <i class="fas fa-server"></i>
+                {{ app_name }}
+            </h1>
+        </div>
+    </div>
+    
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if user %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+                                <i class="fas fa-home me-1"></i><span class="nav-text">Главная</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/agents' %}active{% endif %}" href="/agents">
+                                <i class="fas fa-network-wired me-1"></i><span class="nav-text">Агенты</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/tasks' %}active{% endif %}" href="/tasks">
+                                <i class="fas fa-tasks me-1"></i><span class="nav-text">Задачи</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/reports' %}active{% endif %}" href="/reports">
+                                <i class="fas fa-file-alt me-1"></i><span class="nav-text">Отчеты</span>
+                            </a>
+                        </li>
+                        {% if user.is_admin %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/postgres-backups' %}active{% endif %}" href="/postgres-backups">
+                                <i class="fas fa-database me-1"></i><span class="nav-text">PostgreSQL</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/restore' %}active{% endif %}" href="/restore">
+                                <i class="fas fa-undo me-1"></i><span class="nav-text">Восстановление</span>
+                            </a>
+                        </li>
+                        <li class="nav-item dropdown d-lg-none">
+                            <a class="nav-link dropdown-toggle {% if request.url.path in ['/storage-configs', '/settings'] %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-cog me-1"></i><span class="nav-text">Администрирование</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item {% if request.url.path == '/storage-configs' %}active{% endif %}" href="/storage-configs">
+                                        <i class="fas fa-hdd me-2"></i>Хранилища
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item {% if request.url.path == '/settings' %}active{% endif %}" href="/settings">
+                                        <i class="fas fa-cog me-2"></i>Настройки
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
+                        <li class="nav-item d-none d-lg-block">
+                            <a class="nav-link {% if request.url.path == '/storage-configs' %}active{% endif %}" href="/storage-configs">
+                                <i class="fas fa-hdd me-1"></i><span class="nav-text">Хранилища</span>
+                            </a>
+                        </li>
+                        <li class="nav-item d-none d-lg-block">
+                            <a class="nav-link {% if request.url.path == '/settings' %}active{% endif %}" href="/settings">
+                                <i class="fas fa-cog me-1"></i><span class="nav-text">Настройки</span>
+                            </a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/about' %}active{% endif %}" href="/about">
+                                <i class="fas fa-info-circle me-1"></i><span class="nav-text">О программе</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+                
+                <ul class="navbar-nav">
+                    {% if user %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-user me-1"></i>
+                                <span class="d-none d-md-inline">{{ user.username }}</span>
+                                {% if user.is_admin %}
+                                    <span class="badge bg-primary ms-1 d-none d-md-inline">Admin</span>
+                                    <span class="badge bg-primary ms-1 d-md-none">A</span>
+                                {% endif %}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt me-2"></i>Выход</a></li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="/login"><i class="fas fa-sign-in-alt me-1"></i><span class="nav-text">Вход</span></a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="container-fluid mt-3 mt-md-4 px-2 px-md-3">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        {% if success %}
+            <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container text-center">
+            <p>&copy; 2025 {{ app_name }}</p>
+        </div>
+    </footer>
+    
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+

@@ -1,0 +1,476 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - {{ app_name }}{% endblock %}
+
+{% block content %}
+<!-- Заголовок с кнопками действий -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2 class="mb-0">
+                <i class="fas fa-tachometer-alt me-2"></i>
+                Панель управления
+            </h2>
+            <div>
+                <button type="button" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-download me-1"></i>Скачать
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-paper-plane me-1"></i>Отправить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Первая строка виджетов -->
+<div class="row mb-3">
+    <!-- Виджет: Хранилище данных -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-hdd me-2"></i>Хранилище данных</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-center">
+                    <div style="position: relative; width: 200px; height: 200px;">
+                        <canvas id="storageChart"></canvas>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                            <div style="font-size: 18px; font-weight: bold;">
+                                {{ "%.2f"|format(storage_stats.total_gb) if storage_stats.total_gb > 0 else "0" }} ГБ
+                            </div>
+                            <div style="font-size: 12px; color: #666;">Всего места</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-primary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Резервные копии: {{ "%.2f"|format(storage_stats.used_gb) if storage_stats.used_gb > 0 else "0" }} ГБ</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-secondary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Другое: {{ "%.2f"|format(storage_stats.other_gb) if storage_stats.other_gb > 0 else "0" }} ГБ</span>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-info me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Свободно: {{ "%.2f"|format(storage_stats.free_gb) if storage_stats.free_gb > 0 else "0" }} ГБ</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Виджет: Последние оповещения -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Последние оповещения</h5>
+                <span class="badge bg-danger">{{ latest_alerts|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if latest_alerts %}
+                    <div class="list-group list-group-flush">
+                        {% for alert in latest_alerts[:5] %}
+                        <div class="list-group-item px-0 py-2">
+                            <div class="d-flex align-items-start">
+                                <i class="fas fa-exclamation-triangle text-warning me-2 mt-1"></i>
+                                <div class="flex-grow-1">
+                                    <div class="small text-muted">
+                                        {% if alert.time %}
+                                            {{ alert.time.strftime('%Y-%m-%d %H:%M') }}
+                                        {% else %}
+                                            Недавно
+                                        {% endif %}
+                                    </div>
+                                    <div class="small">{{ alert.message }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% if latest_alerts|length > 5 %}
+                    <div class="text-center mt-2">
+                        <a href="/tasks" class="btn btn-sm btn-outline-primary">Показать все</a>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted text-center mb-0">Нет оповещений</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Виджет: График активности -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Действия</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="activityChart" style="max-height: 200px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Вторая строка: Таблица действий -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list me-2"></i>Список действий</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Результат</th>
+                                <th>Имя действия</th>
+                                <th>Имя плана</th>
+                                <th>Время начала</th>
+                                <th>Время завершения</th>
+                                <th>Продолжительность</th>
+                                <th>Кем запущено</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if all_actions %}
+                                {% for action in all_actions %}
+                                <tr>
+                                    <td>
+                                        {% if action.result == 'success' %}
+                                            <span class="badge bg-success">OK</span>
+                                        {% elif action.result == 'error' %}
+                                            <span class="badge bg-danger">Ошибка</span>
+                                        {% else %}
+                                            <span class="badge bg-warning">Выполняется</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ action.action_name }}</td>
+                                    <td>{{ action.plan_name }}</td>
+                                    <td>
+                                        {% if action.start_time %}
+                                            {{ action.start_time.strftime('%H:%M') }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if action.end_time %}
+                                            {{ action.end_time.strftime('%H:%M') }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if action.duration %}
+                                            {% if action.duration < 60 %}
+                                                несколько секунд
+                                            {% else %}
+                                                {{ (action.duration // 60) }} мин
+                                            {% endif %}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ action.initiated_by }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">Нет выполненных действий</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Третья строка: Статусы -->
+<div class="row mb-3">
+    <!-- Виджет: Состояние -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Состояние</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-center">
+                    <div style="position: relative; width: 200px; height: 200px;">
+                        <canvas id="statusChart"></canvas>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                            <div style="font-size: 18px; font-weight: bold;">
+                                {{ tasks_stats.total }} Защищено
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-danger me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Критично: {{ tasks_stats.error }}</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-warning me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Предупреждение: {{ tasks_stats.running }}</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-success me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>OK: {{ tasks_stats.success }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Виджет: Сводка по активным оповещениям -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-exclamation-circle me-2"></i>Сводка по активным оповещениям</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-center">
+                    <div style="position: relative; width: 200px; height: 200px;">
+                        <canvas id="alertsChart"></canvas>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                            <div style="font-size: 18px; font-weight: bold;">
+                                {{ latest_alerts|length }} Всего
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    {% for alert in latest_alerts[:2] %}
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-warning me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span class="small">{{ alert.message[:40] }}...</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Виджет: Статус защиты -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-server me-2"></i>Статус защиты</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-center">
+                    <div style="position: relative; width: 200px; height: 200px;">
+                        <canvas id="agentsChart"></canvas>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                            <div style="font-size: 18px; font-weight: bold;">
+                                {{ agents_count }} Машины
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-primary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Защищено: {{ agents_stats.online }}</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-danger me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Незащищенные: {{ agents_stats.offline }}</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-success me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Управляемое: {{ agents_stats.online }}</span>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-secondary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Обнаружено: {{ agents_count }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// График хранилища данных
+const storageCtx = document.getElementById('storageChart');
+if (storageCtx) {
+    const usedGb = {{ storage_stats.used_gb if storage_stats.used_gb else 0 }};
+    const otherGb = {{ storage_stats.other_gb if storage_stats.other_gb else 0 }};
+    const freeGb = {{ storage_stats.free_gb if storage_stats.free_gb else 0 }};
+    
+    const storageData = {
+        labels: ['Резервные копии', 'Другое', 'Свободно'],
+        datasets: [{
+            data: [usedGb, otherGb, freeGb],
+            backgroundColor: ['#0078D4', '#9E9E9E', '#2196F3'],
+            borderWidth: 0
+        }]
+    };
+    
+    new Chart(storageCtx, {
+        type: 'doughnut',
+        data: storageData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.label + ': ' + context.parsed.toFixed(2) + ' ГБ';
+                        }
+                    }
+                }
+            },
+            cutout: '70%'
+        }
+    });
+}
+
+// График активности
+const activityCtx = document.getElementById('activityChart');
+if (activityCtx) {
+    const activityLabels = {{ activity_by_day.keys()|list|tojson }};
+    const activityValues = {{ activity_by_day.values()|list|tojson }};
+    
+    const activityData = {
+        labels: activityLabels.reverse(),
+        datasets: [{
+            label: 'Действия',
+            data: activityValues.reverse(),
+            backgroundColor: '#0078D4',
+            borderColor: '#005A9E',
+            borderWidth: 1
+        }]
+    };
+    
+    new Chart(activityCtx, {
+        type: 'bar',
+        data: activityData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+}
+
+// График состояния
+const statusCtx = document.getElementById('statusChart');
+if (statusCtx) {
+    const errorCount = {{ tasks_stats.error if tasks_stats.error else 0 }};
+    const runningCount = {{ tasks_stats.running if tasks_stats.running else 0 }};
+    const successCount = {{ tasks_stats.success if tasks_stats.success else 0 }};
+    
+    const statusData = {
+        labels: ['Критично', 'Предупреждение', 'OK'],
+        datasets: [{
+            data: [errorCount, runningCount, successCount],
+            backgroundColor: ['#F44336', '#FF9800', '#4CAF50'],
+            borderWidth: 0
+        }]
+    };
+    
+    new Chart(statusCtx, {
+        type: 'doughnut',
+        data: statusData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            cutout: '70%'
+        }
+    });
+}
+
+// График оповещений
+const alertsCtx = document.getElementById('alertsChart');
+if (alertsCtx) {
+    const alertsCount = {{ latest_alerts|length if latest_alerts else 0 }};
+    // Разбиваем оповещения по типам для визуализации
+    const alertsData = {
+        labels: ['Оповещения'],
+        datasets: [{
+            data: [alertsCount > 0 ? alertsCount : 1],
+            backgroundColor: ['#FF9800'],
+            borderWidth: 0
+        }]
+    };
+    
+    new Chart(alertsCtx, {
+        type: 'doughnut',
+        data: alertsData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            cutout: '70%'
+        }
+    });
+}
+
+// График статуса защиты (агенты)
+const agentsCtx = document.getElementById('agentsChart');
+if (agentsCtx) {
+    const onlineCount = {{ agents_stats.online if agents_stats.online else 0 }};
+    const offlineCount = {{ agents_stats.offline if agents_stats.offline else 0 }};
+    const totalCount = {{ agents_count if agents_count else 0 }};
+    
+    const agentsData = {
+        labels: ['Защищено', 'Незащищенные', 'Управляемое', 'Обнаружено'],
+        datasets: [{
+            data: [onlineCount, offlineCount, onlineCount, totalCount],
+            backgroundColor: ['#0078D4', '#F44336', '#4CAF50', '#9E9E9E'],
+            borderWidth: 0
+        }]
+    };
+    
+    new Chart(agentsCtx, {
+        type: 'doughnut',
+        data: agentsData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            cutout: '70%'
+        }
+    });
+}
+</script>
+{% endblock %}

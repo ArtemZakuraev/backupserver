@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}PostgreSQL Бэкапы - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-database me-2"></i>Управление PostgreSQL бэкапами</h4>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPostgresBackupModal">
+                    <i class="fas fa-plus me-2"></i>Добавить задачу
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>База данных</th>
+                                <th>Хост</th>
+                                <th>Расписание</th>
+                                <th>Формат</th>
+                                <th>Статус</th>
+                                <th>Последний запуск</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for task in tasks %}
+                            <tr>
+                                <td>{{ task.id }}</td>
+                                <td>{{ task.name }}</td>
+                                <td><code>{{ task.database }}</code></td>
+                                <td>{{ task.host }}:{{ task.port }}</td>
+                                <td><code>{{ task.schedule_cron }}</code></td>
+                                <td>{{ task.backup_format }}</td>
+                                <td>
+                                    {% if task.is_active %}
+                                        <span class="badge bg-success">Активна</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Неактивна</span>
+                                    {% endif %}
+                                    {% if task.last_status == 'success' %}
+                                        <span class="badge bg-success ms-1">Успешно</span>
+                                    {% elif task.last_status == 'error' %}
+                                        <span class="badge bg-danger ms-1">Ошибка</span>
+                                    {% elif task.last_status == 'running' %}
+                                        <span class="badge bg-warning ms-1">Выполняется</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if task.last_run %}
+                                        {{ task.last_run.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        Никогда
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="/postgres-backups/{{ task.id }}/history" class="btn btn-sm btn-info">
+                                        <i class="fas fa-history"></i> История
+                                    </a>
+                                    <button class="btn btn-sm btn-primary" onclick="executeBackup({{ task.id }})">
+                                        <i class="fas fa-play"></i> Запустить
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" onclick="editPostgresTask({{ task.id }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deletePostgresTask({{ task.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для добавления задачи -->
+<div class="modal fade" id="addPostgresBackupModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить задачу PostgreSQL бэкапа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/postgres-backups/add">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название задачи</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="storage_config_id" class="form-label">Хранилище данных</label>
+                        <select class="form-control" id="storage_config_id" name="storage_config_id" required>
+                            <option value="">Выберите хранилище</option>
+                            {% for storage in available_storage %}
+                            <option value="{{ storage.id }}">
+                                {{ storage.name }} ({{ storage.storage_type|upper }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Выберите хранилище для сохранения резервных копий</small>
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Параметры подключения</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="host" class="form-label">Хост</label>
+                            <input type="text" class="form-control" id="host" name="host" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="port" class="form-label">Порт</label>
+                            <input type="number" class="form-control" id="port" name="port" value="5432" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="username" class="form-label">Пользователь</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="password" class="form-label">Пароль</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="database" class="form-label">Имя базы данных</label>
+                        <input type="text" class="form-control" id="database" name="database" required>
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Параметры бэкапа</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="backup_format" class="form-label">Формат бэкапа</label>
+                            <select class="form-control" id="backup_format" name="backup_format">
+                                <option value="custom">Custom (сжатый)</option>
+                                <option value="plain">Plain SQL</option>
+                                <option value="tar">Tar</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="compression_level" class="form-label">Уровень сжатия (0-9)</label>
+                            <input type="number" class="form-control" id="compression_level" name="compression_level" value="6" min="0" max="9">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_schema" name="include_schema" checked>
+                            <label class="form-check-label" for="include_schema">
+                                Включать схему
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_data" name="include_data" checked>
+                            <label class="form-check-label" for="include_data">
+                                Включать данные
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_roles" name="include_roles">
+                            <label class="form-check-label" for="include_roles">
+                                Включать роли
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_tablespaces" name="include_tablespaces">
+                            <label class="form-check-label" for="include_tablespaces">
+                                Включать табличные пространства
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Расписание</h6>
+                    <div class="mb-3">
+                        <label class="form-label">Расписание</label>
+                        <div class="mb-2">
+                            <label for="pg_schedule_type" class="form-label small">Тип повторения</label>
+                            <select class="form-select" id="pg_schedule_type" name="schedule_type" required>
+                                <option value="daily">Каждый день в выбранное время</option>
+                                <option value="weekly">Раз в неделю в выбранный день и время</option>
+                                <option value="hourly">Каждый час в выбранную минуту</option>
+                                <option value="minutely">Каждую минуту</option>
+                            </select>
+                        </div>
+                        <div class="row" id="pg_schedule_daily_weekly">
+                            <div class="col-md-6 mb-2">
+                                <label for="pg_schedule_hour" class="form-label small">Час</label>
+                                <select class="form-select" id="pg_schedule_hour" name="schedule_hour">
+                                    {% for h in range(24) %}
+                                    <option value="{{ h }}" {% if h == 2 %}selected{% endif %}>{{ "%02d"|format(h) }}:00</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label for="pg_schedule_minute" class="form-label small">Минута</label>
+                                <select class="form-select" id="pg_schedule_minute" name="schedule_minute">
+                                    {% for m in range(0, 60, 5) %}
+                                    <option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2" id="pg_schedule_weekly" style="display: none;">
+                            <label for="pg_schedule_day_of_week" class="form-label small">День недели</label>
+                            <select class="form-select" id="pg_schedule_day_of_week" name="schedule_day_of_week">
+                                <option value="0">Воскресенье</option>
+                                <option value="1" selected>Понедельник</option>
+                                <option value="2">Вторник</option>
+                                <option value="3">Среда</option>
+                                <option value="4">Четверг</option>
+                                <option value="5">Пятница</option>
+                                <option value="6">Суббота</option>
+                            </select>
+                        </div>
+                        <div class="mb-2" id="pg_schedule_hourly" style="display: none;">
+                            <label for="pg_schedule_minute_hourly" class="form-label small">Минута</label>
+                            <select class="form-select" id="pg_schedule_minute_hourly" name="schedule_minute_hourly">
+                                {% for m in range(0, 60, 5) %}
+                                <option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <input type="hidden" id="pg_schedule_cron" name="schedule_cron" value="0 2 * * *">
+                        <small class="form-text text-muted" id="pg_schedule_preview">Cron: <code>0 2 * * *</code> (каждый день в 02:00)</small>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="schedule_enabled" name="schedule_enabled" checked>
+                                <label class="form-check-label" for="schedule_enabled">
+                                    Включить расписание
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="cleanup_enabled" name="cleanup_enabled" checked>
+                                <label class="form-check-label" for="cleanup_enabled">
+                                    Включить очистку старых бэкапов
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="cleanup_days" class="form-label">Удалять бэкапы старше (дней)</label>
+                        <input type="number" class="form-control" id="cleanup_days" name="cleanup_days" value="30" min="1">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function executeBackup(taskId) {
+    if (!confirm('Запустить бэкап сейчас?')) {
+        return;
+    }
+    
+    fetch(`/api/postgres-backup-tasks/${taskId}/execute`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Бэкап запущен успешно!');
+            location.reload();
+        } else {
+            alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка: ' + error);
+    });
+}
+
+// PostgreSQL Schedule type converter
+function updatePostgresScheduleFields() {
+    const scheduleType = document.getElementById('pg_schedule_type').value;
+    const dailyWeekly = document.getElementById('pg_schedule_daily_weekly');
+    const weekly = document.getElementById('pg_schedule_weekly');
+    const hourly = document.getElementById('pg_schedule_hourly');
+    const cronInput = document.getElementById('pg_schedule_cron');
+    const preview = document.getElementById('pg_schedule_preview');
+    
+    // Скрываем все поля
+    dailyWeekly.style.display = 'none';
+    weekly.style.display = 'none';
+    hourly.style.display = 'none';
+    
+    let cron = '';
+    let previewText = '';
+    
+    if (scheduleType === 'minutely') {
+        cron = '* * * * *';
+        previewText = 'Cron: <code>* * * * *</code> (каждую минуту)';
+    } else if (scheduleType === 'hourly') {
+        hourly.style.display = 'block';
+        const minute = document.getElementById('pg_schedule_minute_hourly').value;
+        cron = minute + ' * * * *';
+        previewText = 'Cron: <code>' + cron + '</code> (каждый час в ' + minute.padStart(2, '0') + ' минут)';
+    } else if (scheduleType === 'daily') {
+        dailyWeekly.style.display = 'block';
+        const hour = document.getElementById('pg_schedule_hour').value;
+        const minute = document.getElementById('pg_schedule_minute').value;
+        cron = minute + ' ' + hour + ' * * *';
+        previewText = 'Cron: <code>' + cron + '</code> (каждый день в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+    } else if (scheduleType === 'weekly') {
+        dailyWeekly.style.display = 'block';
+        weekly.style.display = 'block';
+        const hour = document.getElementById('pg_schedule_hour').value;
+        const minute = document.getElementById('pg_schedule_minute').value;
+        const dayOfWeek = document.getElementById('pg_schedule_day_of_week').value;
+        const dayNames = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
+        cron = minute + ' ' + hour + ' * * ' + dayOfWeek;
+        previewText = 'Cron: <code>' + cron + '</code> (каждую ' + dayNames[parseInt(dayOfWeek)] + ' в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+    }
+    
+    cronInput.value = cron;
+    preview.innerHTML = previewText;
+}
+
+// Привязываем обработчики событий для PostgreSQL расписания
+document.addEventListener('DOMContentLoaded', function() {
+    const pgScheduleType = document.getElementById('pg_schedule_type');
+    if (pgScheduleType) {
+        pgScheduleType.addEventListener('change', updatePostgresScheduleFields);
+        document.getElementById('pg_schedule_hour').addEventListener('change', updatePostgresScheduleFields);
+        document.getElementById('pg_schedule_minute').addEventListener('change', updatePostgresScheduleFields);
+        document.getElementById('pg_schedule_minute_hourly').addEventListener('change', updatePostgresScheduleFields);
+        document.getElementById('pg_schedule_day_of_week').addEventListener('change', updatePostgresScheduleFields);
+        
+        // Инициализируем при загрузке
+        updatePostgresScheduleFields();
+    }
+});
+</script>
+{% endblock %}
+
+

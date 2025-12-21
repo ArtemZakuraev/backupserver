@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}Отчеты - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-file-alt me-2"></i>Управление отчетами</h4>
+                {% if user.is_admin %}
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addReportModal">
+                    <i class="fas fa-plus me-2"></i>Создать отчет
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Агенты</th>
+                                <th>СУБД</th>
+                                <th>Периодичность</th>
+                                <th>Статус</th>
+                                <th>Последняя отправка</th>
+                                <th>Следующая отправка</th>
+                                {% if user.is_admin %}
+                                <th>Действия</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for report in reports %}
+                            <tr>
+                                <td>{{ report.id }}</td>
+                                <td><strong>{{ report.name }}</strong></td>
+                                <td>{{ report.agent_ids|length }} агентов</td>
+                                <td>{{ report.postgres_task_ids|length }} задач</td>
+                                <td>
+                                    {% if report.schedule_type == 'daily' %}
+                                        Раз в день в {{ "%02d"|format(report.schedule_hour or 0) }}:{{ "%02d"|format(report.schedule_minute or 0) }}
+                                    {% elif report.schedule_type == 'weekly' %}
+                                        Раз в неделю ({{ ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][report.schedule_day_of_week or 0] }}) в {{ "%02d"|format(report.schedule_hour or 0) }}:{{ "%02d"|format(report.schedule_minute or 0) }}
+                                    {% elif report.schedule_type == 'hourly' %}
+                                        Каждый час в {{ "%02d"|format(report.schedule_minute or 0) }} мин
+                                    {% elif report.schedule_type == 'custom_hours' %}
+                                        Каждые {{ report.schedule_hours_interval }} ч в {{ "%02d"|format(report.schedule_minute or 0) }} мин
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if report.enabled %}
+                                        <span class="badge bg-success">Активен</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Неактивен</span>
+                                    {% endif %}
+                                    {% if report.send_to_mattermost %}
+                                        <span class="badge bg-info ms-1">Mattermost</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if report.last_sent %}
+                                        {{ report.last_sent.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        Никогда
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if report.next_send %}
+                                        {{ report.next_send.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                {% if user.is_admin %}
+                                <td>
+                                    <button class="btn btn-sm btn-success" onclick="sendReportNow({{ report.id }})">
+                                        <i class="fas fa-paper-plane"></i> Отправить
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteReport({{ report.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для создания отчета -->
+{% if user.is_admin %}
+<div class="modal fade" id="addReportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать отчет</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/reports/add">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название отчета</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Описание (опционально)</label>
+                        <textarea class="form-control" id="description" name="description" rows="2"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Выберите агентов</label>
+                        <div class="border p-2" style="max-height: 150px; overflow-y: auto;">
+                            {% for agent in agents %}
+                            <div class="form-check">
+                                <input class="form-check-input agent-checkbox" type="checkbox" 
+                                       value="{{ agent.id }}" id="agent_{{ agent.id }}">
+                                <label class="form-check-label" for="agent_{{ agent.id }}">
+                                    {{ agent.name }} ({{ agent.ip_address }})
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" id="agent_ids" name="agent_ids" value="">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Выберите задачи PostgreSQL</label>
+                        <div class="border p-2" style="max-height: 150px; overflow-y: auto;">
+                            {% for task in pg_tasks %}
+                            <div class="form-check">
+                                <input class="form-check-input pg-task-checkbox" type="checkbox" 
+                                       value="{{ task.id }}" id="pg_task_{{ task.id }}">
+                                <label class="form-check-label" for="pg_task_{{ task.id }}">
+                                    {{ task.name }} ({{ task.database }})
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" id="postgres_task_ids" name="postgres_task_ids" value="">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="send_to_mattermost" name="send_to_mattermost">
+                            <label class="form-check-label" for="send_to_mattermost">
+                                Отправлять в Mattermost
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="enabled" name="enabled" checked>
+                            <label class="form-check-label" for="enabled">
+                                Включен
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <h6>Периодичность отправки</h6>
+                    
+                    <div class="mb-3">
+                        <label for="schedule_type" class="form-label">Тип расписания</label>
+                        <select class="form-control" id="schedule_type" name="schedule_type" required onchange="updateScheduleFields()">
+                            <option value="daily">Раз в день</option>
+                            <option value="weekly">Раз в неделю</option>
+                            <option value="hourly">Каждый час</option>
+                            <option value="custom_hours">Каждые N часов</option>
+                        </select>
+                    </div>
+                    
+                    <div id="schedule_daily" class="schedule-options">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="schedule_hour_daily" class="form-label">Час</label>
+                                <input type="number" class="form-control" id="schedule_hour_daily" min="0" max="23" value="9">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="schedule_minute_daily" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="schedule_minute_daily" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="schedule_weekly" class="schedule-options" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="schedule_day_of_week_select" class="form-label">День недели</label>
+                                <select class="form-control" id="schedule_day_of_week_select">
+                                    <option value="0">Понедельник</option>
+                                    <option value="1">Вторник</option>
+                                    <option value="2">Среда</option>
+                                    <option value="3">Четверг</option>
+                                    <option value="4">Пятница</option>
+                                    <option value="5">Суббота</option>
+                                    <option value="6">Воскресенье</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="schedule_hour_weekly" class="form-label">Час</label>
+                                <input type="number" class="form-control" id="schedule_hour_weekly" min="0" max="23" value="9">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="schedule_minute_weekly" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="schedule_minute_weekly" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="schedule_hourly" class="schedule-options" style="display: none;">
+                        <div class="mb-3">
+                            <label for="schedule_minute_hourly" class="form-label">Минута</label>
+                            <input type="number" class="form-control" id="schedule_minute_hourly" min="0" max="59" value="0">
+                        </div>
+                    </div>
+                    
+                    <div id="schedule_custom_hours" class="schedule-options" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="schedule_hours_interval_input" class="form-label">Интервал (часы)</label>
+                                <input type="number" class="form-control" id="schedule_hours_interval_input" min="1" value="2">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="schedule_minute_custom" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="schedule_minute_custom" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="schedule_hour" name="schedule_hour" value="">
+                    <input type="hidden" id="schedule_minute" name="schedule_minute" value="">
+                    <input type="hidden" id="schedule_day_of_week_hidden" name="schedule_day_of_week" value="">
+                    <input type="hidden" id="schedule_hours_interval_hidden" name="schedule_hours_interval" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary" onclick="prepareFormData(event)">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateScheduleFields() {
+    const scheduleType = document.getElementById('schedule_type').value;
+    
+    // Скрываем все опции
+    document.querySelectorAll('.schedule-options').forEach(el => el.style.display = 'none');
+    
+    // Показываем нужные опции
+    if (scheduleType === 'daily') {
+        document.getElementById('schedule_daily').style.display = 'block';
+    } else if (scheduleType === 'weekly') {
+        document.getElementById('schedule_weekly').style.display = 'block';
+    } else if (scheduleType === 'hourly') {
+        document.getElementById('schedule_hourly').style.display = 'block';
+    } else if (scheduleType === 'custom_hours') {
+        document.getElementById('schedule_custom_hours').style.display = 'block';
+    }
+}
+
+function prepareFormData(event) {
+    // Собираем выбранные агенты
+    const agentCheckboxes = document.querySelectorAll('.agent-checkbox:checked');
+    const agentIds = Array.from(agentCheckboxes).map(cb => cb.value).join(',');
+    document.getElementById('agent_ids').value = agentIds;
+    
+    // Собираем выбранные задачи PostgreSQL
+    const pgTaskCheckboxes = document.querySelectorAll('.pg-task-checkbox:checked');
+    const pgTaskIds = Array.from(pgTaskCheckboxes).map(cb => cb.value).join(',');
+    document.getElementById('postgres_task_ids').value = pgTaskIds;
+    
+    // Устанавливаем значения расписания в зависимости от типа
+    const scheduleType = document.getElementById('schedule_type').value;
+    const scheduleHourInput = document.getElementById('schedule_hour');
+    const scheduleMinuteInput = document.getElementById('schedule_minute');
+    const scheduleDayOfWeekInput = document.getElementById('schedule_day_of_week_hidden');
+    const scheduleHoursIntervalInput = document.getElementById('schedule_hours_interval_hidden');
+    
+    if (scheduleType === 'daily') {
+        scheduleHourInput.value = document.getElementById('schedule_hour_daily').value;
+        scheduleMinuteInput.value = document.getElementById('schedule_minute_daily').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'weekly') {
+        scheduleHourInput.value = document.getElementById('schedule_hour_weekly').value;
+        scheduleMinuteInput.value = document.getElementById('schedule_minute_weekly').value;
+        scheduleDayOfWeekInput.value = document.getElementById('schedule_day_of_week_select').value;
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'hourly') {
+        scheduleHourInput.value = '';
+        scheduleMinuteInput.value = document.getElementById('schedule_minute_hourly').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'custom_hours') {
+        scheduleHourInput.value = '';
+        scheduleMinuteInput.value = document.getElementById('schedule_minute_custom').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = document.getElementById('schedule_hours_interval_input').value;
+    }
+}
+
+function sendReportNow(reportId) {
+    if (confirm('Отправить отчет сейчас?')) {
+        fetch(`/api/reports/${reportId}/send`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при отправке отчета');
+            }
+        });
+    }
+}
+
+function deleteReport(reportId) {
+    if (confirm('Вы уверены, что хотите удалить этот отчет?')) {
+        fetch(`/api/reports/${reportId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при удалении отчета');
+            }
+        });
+    }
+}
+</script>
+{% endif %}
+{% endblock %}
+

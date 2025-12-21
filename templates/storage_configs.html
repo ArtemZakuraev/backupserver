@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+
+{% block title %}Хранилища - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-hdd me-2"></i>Управление хранилищами</h4>
+                {% if user.is_admin %}
+                <div class="btn-group">
+                    <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown">
+                        <i class="fas fa-plus me-2"></i>Создать хранилище
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#addS3Modal">
+                            <i class="fas fa-cloud me-2"></i>S3 хранилище
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#addSFTPModal">
+                            <i class="fas fa-server me-2"></i>SFTP хранилище
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#addNFSModal">
+                            <i class="fas fa-network-wired me-2"></i>NFS хранилище
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#addLocalModal">
+                            <i class="fas fa-folder me-2"></i>Локальное хранилище
+                        </a></li>
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Тип</th>
+                                <th>Параметры</th>
+                                <th>Статус</th>
+                                <th>Использовано / Всего</th>
+                                <th>Свободно</th>
+                                <th>Последняя проверка</th>
+                                {% if user.is_admin %}
+                                <th>Действия</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for config in storage_configs %}
+                            <tr>
+                                <td>{{ config.id }}</td>
+                                <td><strong>{{ config.name }}</strong></td>
+                                <td>
+                                    {% if config.storage_type == 's3' %}
+                                        <span class="badge bg-primary"><i class="fas fa-cloud me-1"></i>S3</span>
+                                    {% elif config.storage_type == 'sftp' %}
+                                        <span class="badge bg-info"><i class="fas fa-server me-1"></i>SFTP</span>
+                                    {% elif config.storage_type == 'nfs' %}
+                                        <span class="badge bg-warning"><i class="fas fa-network-wired me-1"></i>NFS</span>
+                                    {% elif config.storage_type == 'local' %}
+                                        <span class="badge bg-success"><i class="fas fa-folder me-1"></i>Local</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ config.storage_type }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.storage_type == 's3' %}
+                                        <small>
+                                            <code>{{ config.config_data.get('endpoint', '-') }}</code><br>
+                                            Bucket: <code>{{ config.config_data.get('bucket_name', '-') }}</code>
+                                        </small>
+                                    {% elif config.storage_type == 'sftp' %}
+                                        <small>
+                                            <code>{{ config.config_data.get('host', '-') }}:{{ config.config_data.get('port', 22) }}</code><br>
+                                            Path: <code>{{ config.config_data.get('base_path', '-') }}</code>
+                                        </small>
+                                    {% elif config.storage_type == 'nfs' %}
+                                        <small>
+                                            <code>{{ config.config_data.get('server', '-') }}</code><br>
+                                            Export: <code>{{ config.config_data.get('export_path', '-') }}</code>
+                                        </small>
+                                    {% elif config.storage_type == 'local' %}
+                                        <small>
+                                            {% if config.get('agent') %}
+                                                Агент: <strong>{{ config.agent.name }}</strong> ({{ config.agent.ip_address }})<br>
+                                            {% else %}
+                                                Агент ID: {{ config.config_data.get('agent_id', '-') }}<br>
+                                            {% endif %}
+                                            Path: <code>{{ config.config_data.get('base_path', '-') }}</code>
+                                        </small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.connection_error %}
+                                        <span class="badge bg-danger" title="{{ config.connection_error }}">Ошибка подключения</span>
+                                    {% elif config.last_check %}
+                                        <span class="badge bg-success">Доступно</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">Не проверено</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.used_space_gb is not none and config.total_space_gb is not none %}
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar {% if (config.used_space_gb / config.total_space_gb * 100) > 90 %}bg-danger{% elif (config.used_space_gb / config.total_space_gb * 100) > 75 %}bg-warning{% else %}bg-success{% endif %}" 
+                                                 role="progressbar" 
+                                                 style="width: {{ (config.used_space_gb / config.total_space_gb * 100) }}%"
+                                                 aria-valuenow="{{ config.used_space_gb }}" 
+                                                 aria-valuemin="0" 
+                                                 aria-valuemax="{{ config.total_space_gb }}">
+                                                {{ "%.2f"|format(config.used_space_gb) }} GB
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">из {{ "%.2f"|format(config.total_space_gb) }} GB</small>
+                                    {% elif config.used_space_gb is not none %}
+                                        <span>{{ "%.2f"|format(config.used_space_gb) }} GB</span>
+                                        <small class="text-muted d-block">(всего неизвестно)</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.free_space_gb is not none %}
+                                        <span class="{% if config.free_space_gb < 10 %}text-danger{% elif config.free_space_gb < 50 %}text-warning{% else %}text-success{% endif %}">
+                                            {{ "%.2f"|format(config.free_space_gb) }} GB
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if config.last_check %}
+                                        {{ config.last_check.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        <span class="text-muted">Никогда</span>
+                                    {% endif %}
+                                </td>
+                                {% if user.is_admin %}
+                                <td>
+                                    <button class="btn btn-sm btn-warning" onclick="editStorageConfig({{ config.id }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteStorageConfig({{ config.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% if config.connection_error %}
+                            <tr class="table-danger">
+                                <td colspan="{% if user.is_admin %}9{% else %}8{% endif %}">
+                                    <small><strong>Ошибка подключения:</strong> {{ config.connection_error }}</small>
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для создания S3 хранилища -->
+{% if user.is_admin %}
+<div class="modal fade" id="addS3Modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать S3 хранилище</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/storage-configs/add">
+                <div class="modal-body">
+                    <input type="hidden" name="storage_type" value="s3">
+                    <div class="mb-3">
+                        <label for="s3_name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="s3_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="s3_endpoint" class="form-label">Endpoint</label>
+                        <input type="text" class="form-control" id="s3_endpoint" name="endpoint" placeholder="http://minio:9000" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="s3_access_key" class="form-label">Access Key</label>
+                        <input type="text" class="form-control" id="s3_access_key" name="access_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="s3_secret_key" class="form-label">Secret Key</label>
+                        <input type="password" class="form-control" id="s3_secret_key" name="secret_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="s3_bucket_name" class="form-label">Bucket Name</label>
+                        <input type="text" class="form-control" id="s3_bucket_name" name="bucket_name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="s3_region" class="form-label">Регион</label>
+                            <input type="text" class="form-control" id="s3_region" name="region" value="us-east-1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="s3_use_ssl" name="use_ssl">
+                                <label class="form-check-label" for="s3_use_ssl">
+                                    Использовать SSL
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для создания SFTP хранилища -->
+<div class="modal fade" id="addSFTPModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать SFTP хранилище</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/storage-configs/add">
+                <div class="modal-body">
+                    <input type="hidden" name="storage_type" value="sftp">
+                    <div class="mb-3">
+                        <label for="sftp_name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="sftp_name" name="name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label for="sftp_host" class="form-label">Хост</label>
+                            <input type="text" class="form-control" id="sftp_host" name="sftp_host" placeholder="sftp.example.com" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="sftp_port" class="form-label">Порт</label>
+                            <input type="number" class="form-control" id="sftp_port" name="sftp_port" value="22" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sftp_username" class="form-label">Имя пользователя</label>
+                        <input type="text" class="form-control" id="sftp_username" name="sftp_username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sftp_password" class="form-label">Пароль</label>
+                        <input type="password" class="form-control" id="sftp_password" name="sftp_password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sftp_base_path" class="form-label">Базовый путь</label>
+                        <input type="text" class="form-control" id="sftp_base_path" name="sftp_base_path" placeholder="/backups" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для создания NFS хранилища -->
+<div class="modal fade" id="addNFSModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать NFS хранилище</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/storage-configs/add">
+                <div class="modal-body">
+                    <input type="hidden" name="storage_type" value="nfs">
+                    <div class="mb-3">
+                        <label for="nfs_name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="nfs_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nfs_server" class="form-label">NFS сервер</label>
+                        <input type="text" class="form-control" id="nfs_server" name="nfs_server" placeholder="nfs.example.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nfs_export_path" class="form-label">Путь экспорта</label>
+                        <input type="text" class="form-control" id="nfs_export_path" name="nfs_export_path" placeholder="/export/backups" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nfs_mount_point" class="form-label">Точка монтирования</label>
+                        <input type="text" class="form-control" id="nfs_mount_point" name="nfs_mount_point" placeholder="/mnt/nfs_backups" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nfs_options" class="form-label">Опции монтирования (опционально)</label>
+                        <input type="text" class="form-control" id="nfs_options" name="nfs_options" placeholder="rw,sync" value="rw,sync">
+                        <small class="form-text text-muted">По умолчанию: rw,sync</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для создания локального хранилища -->
+<div class="modal fade" id="addLocalModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать локальное хранилище</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/storage-configs/add">
+                <div class="modal-body">
+                    <input type="hidden" name="storage_type" value="local">
+                    <div class="mb-3">
+                        <label for="local_name" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="local_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="local_agent_id" class="form-label">Агент</label>
+                        <select class="form-control" id="local_agent_id" name="local_agent_id" required>
+                            <option value="">Выберите агента</option>
+                            {% for agent in agents %}
+                            <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Выберите агента, на сервере которого будет храниться бэкап</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="local_base_path" class="form-label">Базовый путь на агенте</label>
+                        <input type="text" class="form-control" id="local_base_path" name="local_base_path" placeholder="/var/backups" required>
+                        <small class="form-text text-muted">Путь к папке на сервере агента, где будут храниться бэкапы</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function editStorageConfig(id) {
+    // TODO: Реализовать редактирование
+    alert('Редактирование хранилища будет реализовано позже');
+}
+
+function deleteStorageConfig(id) {
+    if (confirm('Вы уверены, что хотите удалить это хранилище?')) {
+        fetch('/api/storage-configs/' + id, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Ошибка при удалении хранилища');
+            }
+        });
+    }
+}
+</script>
+{% endif %}
+{% endblock %}
+

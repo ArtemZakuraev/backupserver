@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-cog me-2"></i>Настройки системы</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/settings/save">
+                    <h5 class="mb-3"><i class="fab fa-mattermost me-2"></i>Интеграция с Mattermost</h5>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="mattermost_enabled" name="mattermost_enabled" {% if settings.mattermost_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="mattermost_enabled">
+                                Включить уведомления в Mattermost
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="mattermost_webhook_url" class="form-label">Webhook URL Mattermost</label>
+                        <input type="url" class="form-control" id="mattermost_webhook_url" name="mattermost_webhook_url" 
+                               value="{{ settings.mattermost_webhook_url or '' }}" 
+                               placeholder="https://mattermost.example.com/hooks/xxxxx">
+                        <small class="form-text text-muted">URL webhook для отправки уведомлений в Mattermost</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="mattermost_daily_report" name="mattermost_daily_report" {% if settings.mattermost_daily_report %}checked{% endif %}>
+                            <label class="form-check-label" for="mattermost_daily_report">
+                                Отправлять ежедневный отчет
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="mattermost_report_time" class="form-label">Время отправки ежедневного отчета</label>
+                        <input type="time" class="form-control" id="mattermost_report_time" name="mattermost_report_time" 
+                               value="{{ settings.mattermost_report_time or '09:00' }}">
+                    </div>
+                    
+                    <hr class="my-4">
+                    
+                    <h5 class="mb-3"><i class="fas fa-clock me-2"></i>Настройки мониторинга</h5>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="agent_poll_interval" class="form-label">Интервал опроса агентов (секунды)</label>
+                            <input type="number" class="form-control" id="agent_poll_interval" name="agent_poll_interval" 
+                                   value="{{ settings.agent_poll_interval or 60 }}" min="10">
+                            <small class="form-text text-muted">Минимальное значение: 10 секунд</small>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="s3_check_interval" class="form-label">Интервал проверки S3 (секунды)</label>
+                            <input type="number" class="form-control" id="s3_check_interval" name="s3_check_interval" 
+                                   value="{{ settings.s3_check_interval or 86400 }}" min="3600">
+                            <small class="form-text text-muted">Минимальное значение: 3600 секунд (1 час)</small>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Сохранить настройки
+                        </button>
+                        <a href="/" class="btn btn-secondary ms-2">
+                            <i class="fas fa-times me-2"></i>Отмена
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+
+
+
