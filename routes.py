@@ -7,6 +7,7 @@ from sqlalchemy import select
 from typing import List, Dict, Any
 from datetime import datetime
 from postgres_backup import PostgresBackupExecutor, encrypt_password
+import json
 
 from database import get_db
 from models import User, Agent, AgentStatus, S3Config, StorageConfig, BackupTask, BackupHistory, PostgresBackupTask, PostgresBackupHistory, Report, ReportHistory
@@ -15,14 +16,15 @@ from schemas import (
     S3ConfigResponse, S3ConfigCreate,
     StorageConfigResponse, StorageConfigCreate, StorageConfigUpdate,
     PostgresBackupTaskResponse, PostgresBackupTaskCreate, PostgresBackupTaskUpdate,
-    BackupTaskResponse, BackupTaskCreate,
+    BackupTaskResponse, BackupTaskCreate, BackupTaskUpdate,
     BackupHistoryResponse, AgentTaskConfig,
     PostgresBackupTaskResponse, PostgresBackupTaskCreate,
     PostgresBackupHistoryResponse, PostgresRestoreRequest,
-    ReportResponse, ReportCreate, ReportUpdate, ReportHistoryResponse
+    ReportResponse, ReportCreate, ReportUpdate, ReportHistoryResponse,
+    UserResponse, UserCreateAdmin, PasswordChange
 )
 from agent_client import AgentClient
-from utils import verify_token
+from utils import verify_token, get_password_hash, verify_password
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 router = APIRouter()
@@ -158,35 +160,9 @@ async def delete_agent(
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     
-    await db.delete(agent)
+    db.delete(agent)
     await db.commit()
     return None
-
-
-@router.delete("/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_agent(
-    agent_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Удаляет агента"""
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    await db.delete(agent)
-    await db.commit()
-    return None
-    """Получает информацию об агенте"""
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
 
 
 @router.get("/agents/{agent_id}/status", response_model=AgentStatusResponse)
@@ -278,16 +254,25 @@ async def create_backup_task(
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    # Получаем агента и S3 конфигурацию
+    # Получаем агента
     result_agent = await db.execute(select(Agent).where(Agent.id == task.agent_id))
     agent = result_agent.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     
-    result_s3 = await db.execute(select(S3Config).where(S3Config.id == task.s3_config_id))
-    s3_config = result_s3.scalar_one_or_none()
-    if s3_config is None:
-        raise HTTPException(status_code=404, detail="S3 config not found")
+    # Получаем конфигурацию хранилища (новое или старое S3)
+    s3_config = None
+    storage_config = None
+    if task.storage_config_id:
+        result_storage = await db.execute(select(StorageConfig).where(StorageConfig.id == task.storage_config_id))
+        storage_config = result_storage.scalar_one_or_none()
+        if storage_config is None:
+            raise HTTPException(status_code=404, detail="Storage config not found")
+    elif task.s3_config_id:
+        result_s3 = await db.execute(select(S3Config).where(S3Config.id == task.s3_config_id))
+        s3_config = result_s3.scalar_one_or_none()
+        if s3_config is None:
+            raise HTTPException(status_code=404, detail="S3 config not found")
     
     # Получаем информацию о файловой системе от агента
     client = AgentClient(agent.ip_address, agent.port)
@@ -301,17 +286,71 @@ async def create_backup_task(
     await db.commit()
     await db.refresh(db_task)
     
+    # Формируем конфигурацию задачи для агента
+    import json
+    from models import StorageConfig, Agent as AgentModel
+    
+    # Определяем тип хранилища и формируем конфигурацию
+    storage_type = None
+    storage_config_json = None
+    s3_endpoint = None
+    s3_access_key = None
+    s3_secret_key = None
+    s3_bucket = None
+    s3_region = None
+    
+    if db_task.storage_config_id:
+        # Используем новое универсальное хранилище
+        result_storage = await db.execute(
+            select(StorageConfig).where(StorageConfig.id == db_task.storage_config_id)
+        )
+        storage_config = result_storage.scalar_one_or_none()
+        if storage_config:
+            storage_type = storage_config.storage_type
+            if storage_type == "local":
+                # Для типа local нужно получить IP и порт агента-хранилища
+                agent_id = storage_config.config_data.get("agent_id")
+                if agent_id:
+                    result_storage_agent = await db.execute(
+                        select(AgentModel).where(AgentModel.id == agent_id)
+                    )
+                    storage_agent = result_storage_agent.scalar_one_or_none()
+                    if storage_agent:
+                        local_config = {
+                            "agent_ip": storage_agent.ip_address,
+                            "agent_port": storage_agent.port,
+                            "base_path": storage_config.config_data.get("base_path", "/var/backups")
+                        }
+                        storage_config_json = json.dumps(local_config)
+            elif storage_type == "s3":
+                # Для S3 формируем из config_data
+                s3_endpoint = storage_config.config_data.get("endpoint")
+                s3_access_key = storage_config.config_data.get("access_key")
+                s3_secret_key = storage_config.config_data.get("secret_key")
+                s3_bucket = storage_config.config_data.get("bucket_name")
+                s3_region = storage_config.config_data.get("region", "us-east-1")
+    elif s3_config:
+        # Обратная совместимость со старым S3
+        storage_type = "s3"
+        s3_endpoint = s3_config.endpoint
+        s3_access_key = s3_config.access_key
+        s3_secret_key = s3_config.secret_key
+        s3_bucket = s3_config.bucket_name
+        s3_region = s3_config.region
+    
     # Отправляем конфигурацию агенту
     task_config = AgentTaskConfig(
         task_id=db_task.id,
         source_path=db_task.source_path,
         create_archive=db_task.create_archive,
         archive_format=db_task.archive_format,
-        s3_endpoint=s3_config.endpoint,
-        s3_access_key=s3_config.access_key,
-        s3_secret_key=s3_config.secret_key,
-        s3_bucket=s3_config.bucket_name,
-        s3_region=s3_config.region,
+        s3_endpoint=s3_endpoint,
+        s3_access_key=s3_access_key,
+        s3_secret_key=s3_secret_key,
+        s3_bucket=s3_bucket,
+        s3_region=s3_region,
+        storage_type=storage_type,
+        storage_config=storage_config_json,
         cleanup_enabled=db_task.cleanup_enabled,
         cleanup_days=db_task.cleanup_days,
         is_docker_compose=db_task.is_docker_compose,
@@ -321,6 +360,175 @@ async def create_backup_task(
     await client.send_task_config(task_config)
     
     return db_task
+
+
+@router.get("/backup-tasks/{task_id}", response_model=BackupTaskResponse)
+async def get_backup_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Получает задачу резервного копирования по ID"""
+    result = await db.execute(select(BackupTask).where(BackupTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Backup task not found")
+    return task
+
+
+@router.put("/backup-tasks/{task_id}", response_model=BackupTaskResponse)
+async def update_backup_task(
+    task_id: int,
+    task_update: BackupTaskUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Обновляет задачу резервного копирования"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.execute(select(BackupTask).where(BackupTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Backup task not found")
+    
+    # Обновляем поля
+    update_data = task_update.dict(exclude_unset=True)
+    
+    # Если обновляется агент, проверяем его существование
+    if "agent_id" in update_data:
+        result_agent = await db.execute(select(Agent).where(Agent.id == update_data["agent_id"]))
+        agent = result_agent.scalar_one_or_none()
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Agent not found")
+    
+    # Если обновляется хранилище, проверяем его существование
+    if "storage_config_id" in update_data and update_data["storage_config_id"]:
+        result_storage = await db.execute(
+            select(StorageConfig).where(StorageConfig.id == update_data["storage_config_id"])
+        )
+        storage_config = result_storage.scalar_one_or_none()
+        if storage_config is None:
+            raise HTTPException(status_code=404, detail="Storage config not found")
+    elif "s3_config_id" in update_data and update_data["s3_config_id"]:
+        result_s3 = await db.execute(select(S3Config).where(S3Config.id == update_data["s3_config_id"]))
+        s3_config = result_s3.scalar_one_or_none()
+        if s3_config is None:
+            raise HTTPException(status_code=404, detail="S3 config not found")
+    
+    # Обновляем поля задачи
+    for field, value in update_data.items():
+        setattr(task, field, value)
+    
+    # Если изменился путь или агент, обновляем информацию о файловой системе
+    if "source_path" in update_data or "agent_id" in update_data:
+        result_agent = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+        agent = result_agent.scalar_one_or_none()
+        if agent:
+            client = AgentClient(agent.ip_address, agent.port)
+            filesystem_info = await client.get_filesystem_info(task.source_path)
+            if filesystem_info:
+                task.filesystem = filesystem_info.filesystem
+    
+    await db.commit()
+    await db.refresh(task)
+    
+    # Отправляем обновленную конфигурацию агенту
+    import json
+    from models import StorageConfig, Agent as AgentModel
+    from schemas import AgentTaskConfig
+    
+    storage_type = None
+    storage_config_json = None
+    s3_endpoint = None
+    s3_access_key = None
+    s3_secret_key = None
+    s3_bucket = None
+    s3_region = None
+    
+    if task.storage_config_id:
+        result_storage = await db.execute(
+            select(StorageConfig).where(StorageConfig.id == task.storage_config_id)
+        )
+        storage_config = result_storage.scalar_one_or_none()
+        if storage_config:
+            storage_type = storage_config.storage_type
+            if storage_type == "local":
+                agent_id = storage_config.config_data.get("agent_id")
+                if agent_id:
+                    result_storage_agent = await db.execute(
+                        select(AgentModel).where(AgentModel.id == agent_id)
+                    )
+                    storage_agent = result_storage_agent.scalar_one_or_none()
+                    if storage_agent:
+                        local_config = {
+                            "agent_ip": storage_agent.ip_address,
+                            "agent_port": storage_agent.port,
+                            "base_path": storage_config.config_data.get("base_path", "/var/backups")
+                        }
+                        storage_config_json = json.dumps(local_config)
+            elif storage_type == "s3":
+                s3_endpoint = storage_config.config_data.get("endpoint")
+                s3_access_key = storage_config.config_data.get("access_key")
+                s3_secret_key = storage_config.config_data.get("secret_key")
+                s3_bucket = storage_config.config_data.get("bucket_name")
+                s3_region = storage_config.config_data.get("region", "us-east-1")
+    elif task.s3_config_id:
+        result_s3 = await db.execute(select(S3Config).where(S3Config.id == task.s3_config_id))
+        s3_config = result_s3.scalar_one_or_none()
+        if s3_config:
+            storage_type = "s3"
+            s3_endpoint = s3_config.endpoint
+            s3_access_key = s3_config.access_key
+            s3_secret_key = s3_config.secret_key
+            s3_bucket = s3_config.bucket_name
+            s3_region = s3_config.region
+    
+    result_agent = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+    agent = result_agent.scalar_one_or_none()
+    if agent:
+        client = AgentClient(agent.ip_address, agent.port)
+        task_config = AgentTaskConfig(
+            task_id=task.id,
+            source_path=task.source_path,
+            create_archive=task.create_archive,
+            archive_format=task.archive_format,
+            s3_endpoint=s3_endpoint,
+            s3_access_key=s3_access_key,
+            s3_secret_key=s3_secret_key,
+            s3_bucket=s3_bucket,
+            s3_region=s3_region,
+            storage_type=storage_type,
+            storage_config=storage_config_json,
+            cleanup_enabled=task.cleanup_enabled,
+            cleanup_days=task.cleanup_days,
+            is_docker_compose=task.is_docker_compose,
+            docker_compose_path=task.docker_compose_path,
+            schedule_cron=task.schedule_cron
+        )
+        await client.send_task_config(task_config)
+    
+    return task
+
+
+@router.delete("/backup-tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_backup_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удаляет задачу резервного копирования"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.execute(select(BackupTask).where(BackupTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Backup task not found")
+    
+    db.delete(task)
+    await db.commit()
+    return None
 
 
 @router.get("/backup-tasks/{task_id}/history", response_model=List[BackupHistoryResponse])
@@ -362,19 +570,39 @@ async def create_postgres_backup_task(
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    # Проверяем S3 конфигурацию
-    result_s3 = await db.execute(select(S3Config).where(S3Config.id == task.s3_config_id))
-    s3_config = result_s3.scalar_one_or_none()
-    if s3_config is None:
-        raise HTTPException(status_code=404, detail="S3 config not found")
+    # Проверяем агента
+    result_agent = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+    agent = result_agent.scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
     
-    # Шифруем пароль
-    encrypted_password = encrypt_password(task.password)
+    # Проверяем хранилище
+    storage_config = None
+    s3_config = None
+    if task.storage_config_id:
+        result_storage = await db.execute(select(StorageConfig).where(StorageConfig.id == task.storage_config_id))
+        storage_config = result_storage.scalar_one_or_none()
+        if storage_config is None:
+            raise HTTPException(status_code=404, detail="Storage config not found")
+    elif task.s3_config_id:
+        result_s3 = await db.execute(select(S3Config).where(S3Config.id == task.s3_config_id))
+        s3_config = result_s3.scalar_one_or_none()
+        if s3_config is None:
+            raise HTTPException(status_code=404, detail="S3 config not found")
+    else:
+        raise HTTPException(status_code=400, detail="Either storage_config_id or s3_config_id must be provided")
     
-    # Создаем задачу
+    # Шифруем пароль, если он указан (для обратной совместимости)
+    encrypted_password = None
+    if task.password:
+        encrypted_password = encrypt_password(task.password)
+    
+    # Создаем задачу в БД
     db_task = PostgresBackupTask(
         name=task.name,
+        agent_id=task.agent_id,
         s3_config_id=task.s3_config_id,
+        storage_config_id=task.storage_config_id,
         host=task.host,
         port=task.port,
         username=task.username,
@@ -394,6 +622,59 @@ async def create_postgres_backup_task(
     db.add(db_task)
     await db.commit()
     await db.refresh(db_task)
+    
+    # Отправляем конфигурацию подключения к PostgreSQL агенту
+    if task.host and task.username and task.password:
+        client = AgentClient(agent.ip_address, agent.port)
+        connection_id = db_task.id  # Используем ID задачи как ID подключения
+        await client.set_postgres_connection(
+            connection_id=connection_id,
+            host=task.host,
+            port=task.port or 5432,
+            username=task.username,
+            password=task.password,  # Отправляем незашифрованный пароль агенту
+            database=task.database
+        )
+        
+        # Отправляем конфигурацию задачи PostgreSQL агенту
+        storage_config_data = {}
+        if storage_config:
+            storage_config_data = storage_config.config_data if isinstance(storage_config.config_data, dict) else {}
+        elif s3_config:
+            storage_config_data = {
+                "endpoint": s3_config.endpoint,
+                "access_key": s3_config.access_key,
+                "secret_key": s3_config.secret_key,
+                "bucket_name": s3_config.bucket_name,
+                "region": s3_config.region,
+                "use_ssl": s3_config.use_ssl
+            }
+        
+        # Определяем тип хранилища
+        storage_type = "s3"
+        if storage_config:
+            storage_type = storage_config.storage_type
+        elif s3_config:
+            storage_type = "s3"
+        
+        task_config = {
+            "task_id": db_task.id,
+            "connection_id": connection_id,
+            "name": task.name,
+            "database": task.database,
+            "backup_format": task.backup_format,
+            "compression_level": task.compression_level,
+            "include_schema": task.include_schema,
+            "include_data": task.include_data,
+            "include_roles": task.include_roles,
+            "include_tablespaces": task.include_tablespaces,
+            "storage_type": storage_type,
+            "storage_config": json.dumps(storage_config_data),
+            "cleanup_enabled": task.cleanup_enabled,
+            "cleanup_days": task.cleanup_days,
+            "schedule_cron": task.schedule_cron
+        }
+        await client.set_postgres_task_config(task_config)
     
     return db_task
 
@@ -474,7 +755,7 @@ async def delete_postgres_backup_task(
     if task is None:
         raise HTTPException(status_code=404, detail="PostgreSQL backup task not found")
     
-    await db.delete(task)
+    db.delete(task)
     await db.commit()
     return None
 
@@ -802,7 +1083,7 @@ async def delete_report(
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    await db.delete(report)
+    db.delete(report)
     await db.commit()
     return None
 
@@ -848,4 +1129,176 @@ async def get_report_history(
     )
     history = result.scalars().all()
     return history
+
+
+# User endpoints
+@router.get("/users", response_model=List[UserResponse])
+async def get_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Получает список всех пользователей"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+    return users
+
+
+@router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_data: UserCreateAdmin,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Создает нового пользователя (только для администраторов)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Проверяем, что пользователь с таким username не существует
+    result = await db.execute(select(User).where(User.username == user_data.username))
+    existing_user = result.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User with this username already exists")
+    
+    # Проверяем, что пользователь с таким email не существует
+    result = await db.execute(select(User).where(User.email == user_data.email))
+    existing_email = result.scalar_one_or_none()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    # Создаем нового пользователя (все с ролью администратора)
+    new_user = User(
+        username=user_data.username,
+        email=user_data.email,
+        password_hash=get_password_hash(user_data.password),
+        is_admin=True  # Все пользователи - администраторы
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    return new_user
+
+
+@router.put("/users/me/password", status_code=status.HTTP_200_OK)
+async def change_password(
+    password_data: PasswordChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Изменяет пароль текущего пользователя"""
+    # Проверяем текущий пароль
+    if not verify_password(password_data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Обновляем пароль
+    current_user.password_hash = get_password_hash(password_data.new_password)
+    await db.commit()
+    
+    return {"success": True, "message": "Password changed successfully"}
+
+
+# Storage Config endpoints
+@router.get("/storage-configs", response_model=List[StorageConfigResponse])
+async def get_storage_configs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Получает список конфигураций хранилищ"""
+    result = await db.execute(select(StorageConfig))
+    configs = result.scalars().all()
+    return configs
+
+
+@router.get("/storage-configs/{config_id}", response_model=StorageConfigResponse)
+async def get_storage_config(
+    config_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Получает конфигурацию хранилища по ID"""
+    result = await db.execute(select(StorageConfig).where(StorageConfig.id == config_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="Storage config not found")
+    return config
+
+
+@router.put("/storage-configs/{config_id}", response_model=StorageConfigResponse)
+async def update_storage_config(
+    config_id: int,
+    config_update: StorageConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Обновляет конфигурацию хранилища"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.execute(select(StorageConfig).where(StorageConfig.id == config_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="Storage config not found")
+    
+    # Обновляем поля
+    update_data = config_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(config, field, value)
+    
+    await db.commit()
+    await db.refresh(config)
+    return config
+
+
+@router.delete("/storage-configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_storage_config(
+    config_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удаляет конфигурацию хранилища"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.execute(select(StorageConfig).where(StorageConfig.id == config_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="Storage config not found")
+    
+    # Проверяем, используется ли хранилище
+    result_tasks = await db.execute(
+        select(BackupTask).where(BackupTask.storage_config_id == config_id)
+    )
+    tasks = result_tasks.scalars().all()
+    if tasks:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete storage config: it is used by {len(tasks)} backup task(s)"
+        )
+    
+    result_postgres = await db.execute(
+        select(PostgresBackupTask).where(PostgresBackupTask.storage_config_id == config_id)
+    )
+    postgres_tasks = result_postgres.scalars().all()
+    if postgres_tasks:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete storage config: it is used by {len(postgres_tasks)} PostgreSQL backup task(s)"
+        )
+    
+    result_agents = await db.execute(
+        select(Agent).where(Agent.storage_config_id == config_id)
+    )
+    agents = result_agents.scalars().all()
+    if agents:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete storage config: it is used by {len(agents)} agent(s)"
+        )
+    
+    await db.delete(config)
+    await db.commit()
+    return None
 

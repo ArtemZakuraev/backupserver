@@ -61,10 +61,20 @@ class S3Client:
         try:
             objects = self.client.list_objects(self.bucket_name, prefix=prefix, recursive=True)
             for obj in objects:
+                # Преобразуем last_modified в ISO строку для JSON сериализации
+                last_modified = obj.last_modified
+                if last_modified:
+                    if hasattr(last_modified, 'isoformat'):
+                        last_modified = last_modified.isoformat()
+                    elif isinstance(last_modified, str):
+                        pass  # Уже строка
+                    else:
+                        last_modified = str(last_modified)
+                
                 backups.append({
                     "name": obj.object_name,
                     "size": obj.size,
-                    "last_modified": obj.last_modified,
+                    "last_modified": last_modified,
                     "etag": obj.etag
                 })
         except S3Error as e:
@@ -98,6 +108,9 @@ class S3Client:
             return True
         except S3Error:
             return False
+
+
+
 
 
 

@@ -28,6 +28,9 @@
                                 <th>Последний запуск</th>
                                 <th>Следующий запуск</th>
                                 <th>Ошибка</th>
+                                {% if user.is_admin %}
+                                <th>Действия</th>
+                                {% endif %}
                             </tr>
                         </thead>
                         <tbody>
@@ -76,6 +79,16 @@
                                         <span class="text-muted">-</span>
                                     {% endif %}
                                 </td>
+                                {% if user.is_admin %}
+                                <td>
+                                    <button class="btn btn-sm btn-warning" onclick="editTask({{ task.id }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteTask({{ task.id }})">
+                                        <i class="fas fa-trash"></i> Удалить
+                                    </button>
+                                </td>
+                                {% endif %}
                             </tr>
                             {% if task.last_error %}
                             <tr class="table-danger">
@@ -234,11 +247,226 @@
         </div>
     </div>
 </div>
+
+<!-- Modal для редактирования задачи -->
+<div class="modal fade" id="editTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать задачу резервного копирования</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editTaskForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_task_name" class="form-label">Название задачи</label>
+                        <input type="text" class="form-control" id="edit_task_name" name="name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_task_agent_id" class="form-label">Агент</label>
+                            <select class="form-control" id="edit_task_agent_id" name="agent_id" required>
+                                {% for agent in agents %}
+                                <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_task_s3_config_id" class="form-label">S3 Конфигурация</label>
+                            <select class="form-control" id="edit_task_s3_config_id" name="s3_config_id" required>
+                                {% for s3 in s3_configs %}
+                                <option value="{{ s3.id }}">{{ s3.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_task_source_path" class="form-label">Путь к папке для резервного копирования</label>
+                        <input type="text" class="form-control" id="edit_task_source_path" name="source_path" placeholder="/path/to/backup" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Расписание</label>
+                        <div class="mb-2">
+                            <label for="edit_schedule_type" class="form-label small">Тип повторения</label>
+                            <select class="form-select" id="edit_schedule_type" name="schedule_type" required onchange="updateEditScheduleFields()">
+                                <option value="daily">Каждый день в выбранное время</option>
+                                <option value="weekly">Раз в неделю в выбранный день и время</option>
+                                <option value="hourly">Каждый час в выбранную минуту</option>
+                                <option value="minutely">Каждую минуту</option>
+                            </select>
+                        </div>
+                        <div class="row" id="edit_schedule_daily_weekly">
+                            <div class="col-md-6 mb-2">
+                                <label for="edit_schedule_hour" class="form-label small">Час</label>
+                                <select class="form-select" id="edit_schedule_hour" name="schedule_hour" onchange="updateEditScheduleFields()">
+                                    {% for h in range(24) %}
+                                    <option value="{{ h }}">{{ "%02d"|format(h) }}:00</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label for="edit_schedule_minute" class="form-label small">Минута</label>
+                                <select class="form-select" id="edit_schedule_minute" name="schedule_minute" onchange="updateEditScheduleFields()">
+                                    {% for m in range(0, 60, 5) %}
+                                    <option value="{{ m }}">{{ "%02d"|format(m) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2" id="edit_schedule_weekly" style="display: none;">
+                            <label for="edit_schedule_day_of_week" class="form-label small">День недели</label>
+                            <select class="form-select" id="edit_schedule_day_of_week" name="schedule_day_of_week" onchange="updateEditScheduleFields()">
+                                <option value="0">Воскресенье</option>
+                                <option value="1">Понедельник</option>
+                                <option value="2">Вторник</option>
+                                <option value="3">Среда</option>
+                                <option value="4">Четверг</option>
+                                <option value="5">Пятница</option>
+                                <option value="6">Суббота</option>
+                            </select>
+                        </div>
+                        <div class="mb-2" id="edit_schedule_hourly" style="display: none;">
+                            <label for="edit_schedule_minute_hourly" class="form-label small">Минута</label>
+                            <select class="form-select" id="edit_schedule_minute_hourly" name="schedule_minute_hourly" onchange="updateEditScheduleFields()">
+                                {% for m in range(0, 60, 5) %}
+                                <option value="{{ m }}">{{ "%02d"|format(m) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <input type="hidden" id="edit_schedule_cron" name="schedule_cron" value="0 2 * * *">
+                        <small class="form-text text-muted" id="edit_schedule_preview">Cron: <code>0 2 * * *</code> (каждый день в 02:00)</small>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="edit_task_create_archive" name="create_archive" checked>
+                                <label class="form-check-label" for="edit_task_create_archive">
+                                    Создавать архив
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_task_archive_format" class="form-label">Формат архива</label>
+                            <select class="form-control" id="edit_task_archive_format" name="archive_format">
+                                <option value="tar.gz">tar.gz</option>
+                                <option value="tar">tar</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_task_is_docker_compose" name="is_docker_compose">
+                            <label class="form-check-label" for="edit_task_is_docker_compose">
+                                Docker Compose проект (остановить перед архивированием)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="edit_docker_compose_path_group" style="display: none;">
+                        <label for="edit_task_docker_compose_path" class="form-label">Путь к docker-compose.yml</label>
+                        <input type="text" class="form-control" id="edit_task_docker_compose_path" name="docker_compose_path" placeholder="/path/to/docker-compose.yml">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="edit_task_cleanup_enabled" name="cleanup_enabled">
+                                <label class="form-check-label" for="edit_task_cleanup_enabled">
+                                    Включить очистку старых бэкапов
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_task_cleanup_days" class="form-label">Удалять бэкапы старше (дней)</label>
+                            <input type="number" class="form-control" id="edit_task_cleanup_days" name="cleanup_days" value="30" min="1">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_task_is_active" name="is_active" checked>
+                            <label class="form-check-label" for="edit_task_is_active">
+                                Активна
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
+    // Docker Compose toggle для редактирования
+    document.getElementById('edit_task_is_docker_compose')?.addEventListener('change', function() {
+        const pathGroup = document.getElementById('edit_docker_compose_path_group');
+        if (this.checked) {
+            pathGroup.style.display = 'block';
+        } else {
+            pathGroup.style.display = 'none';
+        }
+    });
+    
+    // Schedule type converter для редактирования
+    function updateEditScheduleFields() {
+        const scheduleType = document.getElementById('edit_schedule_type').value;
+        const dailyWeekly = document.getElementById('edit_schedule_daily_weekly');
+        const weekly = document.getElementById('edit_schedule_weekly');
+        const hourly = document.getElementById('edit_schedule_hourly');
+        const cronInput = document.getElementById('edit_schedule_cron');
+        const preview = document.getElementById('edit_schedule_preview');
+        
+        if (!dailyWeekly || !weekly || !hourly || !cronInput || !preview) return;
+        
+        // Скрываем все поля
+        dailyWeekly.style.display = 'none';
+        weekly.style.display = 'none';
+        hourly.style.display = 'none';
+        
+        let cron = '';
+        let previewText = '';
+        
+        if (scheduleType === 'minutely') {
+            cron = '* * * * *';
+            previewText = 'Cron: <code>* * * * *</code> (каждую минуту)';
+        } else if (scheduleType === 'hourly') {
+            hourly.style.display = 'block';
+            const minute = document.getElementById('edit_schedule_minute_hourly').value;
+            cron = minute + ' * * * *';
+            previewText = 'Cron: <code>' + cron + '</code> (каждый час в ' + minute.padStart(2, '0') + ' минут)';
+        } else if (scheduleType === 'daily') {
+            dailyWeekly.style.display = 'block';
+            const hour = document.getElementById('edit_schedule_hour').value;
+            const minute = document.getElementById('edit_schedule_minute').value;
+            cron = minute + ' ' + hour + ' * * *';
+            previewText = 'Cron: <code>' + cron + '</code> (каждый день в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+        } else if (scheduleType === 'weekly') {
+            dailyWeekly.style.display = 'block';
+            weekly.style.display = 'block';
+            const hour = document.getElementById('edit_schedule_hour').value;
+            const minute = document.getElementById('edit_schedule_minute').value;
+            const dayOfWeek = document.getElementById('edit_schedule_day_of_week').value;
+            const dayNames = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
+            cron = minute + ' ' + hour + ' * * ' + dayOfWeek;
+            previewText = 'Cron: <code>' + cron + '</code> (каждую ' + dayNames[parseInt(dayOfWeek)] + ' в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+        }
+        
+        cronInput.value = cron;
+        preview.innerHTML = previewText;
+    }
+    
+    // Привязываем обработчики событий для редактирования
+    document.getElementById('edit_schedule_type')?.addEventListener('change', updateEditScheduleFields);
+    document.getElementById('edit_schedule_hour')?.addEventListener('change', updateEditScheduleFields);
+    document.getElementById('edit_schedule_minute')?.addEventListener('change', updateEditScheduleFields);
+    document.getElementById('edit_schedule_minute_hourly')?.addEventListener('change', updateEditScheduleFields);
+    document.getElementById('edit_schedule_day_of_week')?.addEventListener('change', updateEditScheduleFields);
+    
+    // Docker Compose toggle
     // Docker Compose toggle
     document.getElementById('is_docker_compose').addEventListener('change', function() {
         const pathGroup = document.getElementById('docker_compose_path_group');
@@ -304,6 +532,98 @@
     
     // Инициализируем при загрузке
     updateScheduleFields();
+});
+
+function editTask(id) {
+    // Загружаем данные задачи через веб-эндпоинт (использует cookie авторизацию)
+    fetch('/api/web/backup-tasks/' + id, {
+        credentials: 'same-origin'
+    })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status === 401) {
+                    alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+                    window.location.href = '/login';
+                    return;
+                }
+                return response.json().then(data => {
+                    throw new Error(data.detail || 'Ошибка загрузки данных');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Заполняем форму редактирования
+            document.getElementById('edit_task_name').value = data.name || '';
+            document.getElementById('edit_task_agent_id').value = data.agent_id || '';
+            document.getElementById('edit_task_s3_config_id').value = data.s3_config_id || '';
+            document.getElementById('edit_task_source_path').value = data.source_path || '';
+            document.getElementById('edit_task_create_archive').checked = data.create_archive || false;
+            document.getElementById('edit_task_archive_format').value = data.archive_format || 'tar.gz';
+            document.getElementById('edit_task_is_docker_compose').checked = data.is_docker_compose || false;
+            document.getElementById('edit_task_docker_compose_path').value = data.docker_compose_path || '';
+            document.getElementById('edit_task_cleanup_enabled').checked = data.cleanup_enabled || false;
+            document.getElementById('edit_task_cleanup_days').value = data.cleanup_days || 30;
+            document.getElementById('edit_task_is_active').checked = data.is_active !== false;
+            
+            // Парсим cron для заполнения расписания
+            if (data.schedule_cron) {
+                const cronParts = data.schedule_cron.split(' ');
+                if (cronParts.length >= 5) {
+                    const minute = cronParts[0];
+                    const hour = cronParts[1];
+                    const dayOfWeek = cronParts[4];
+                    
+                    if (cronParts[0] === '*' && cronParts[1] === '*' && cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
+                        document.getElementById('edit_schedule_type').value = 'minutely';
+                    } else if (cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
+                        document.getElementById('edit_schedule_type').value = 'hourly';
+                        document.getElementById('edit_schedule_minute_hourly').value = minute;
+                    } else if (cronParts[4] === '*') {
+                        document.getElementById('edit_schedule_type').value = 'daily';
+                        document.getElementById('edit_schedule_hour').value = hour;
+                        document.getElementById('edit_schedule_minute').value = minute;
+                    } else {
+                        document.getElementById('edit_schedule_type').value = 'weekly';
+                        document.getElementById('edit_schedule_hour').value = hour;
+                        document.getElementById('edit_schedule_minute').value = minute;
+                        document.getElementById('edit_schedule_day_of_week').value = dayOfWeek;
+                    }
+                    updateEditScheduleFields();
+                }
+            }
+            
+            document.getElementById('editTaskForm').action = '/tasks/' + id + '/edit';
+            const modal = new bootstrap.Modal(document.getElementById('editTaskModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading task:', error);
+            alert('Ошибка при загрузке данных задачи: ' + error.message);
+        });
+}
+
+function deleteTask(id) {
+    if (confirm('Вы уверены, что хотите удалить эту задачу резервного копирования?')) {
+        fetch('/api/web/backup-tasks/' + id, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                return response.json().then(data => {
+                    alert('Ошибка при удалении задачи: ' + (data.detail || 'Неизвестная ошибка'));
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting task:', error);
+            alert('Ошибка при удалении задачи');
+        });
+    }
+}
 </script>
 {% endblock %}
 

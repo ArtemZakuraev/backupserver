@@ -98,6 +98,17 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label for="agent_id" class="form-label">Агент</label>
+                        <select class="form-control" id="agent_id" name="agent_id" required>
+                            <option value="">Выберите агента</option>
+                            {% for agent in agents %}
+                            <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Агент, на котором будет выполняться задача</small>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label for="storage_config_id" class="form-label">Хранилище данных</label>
                         <select class="form-control" id="storage_config_id" name="storage_config_id" required>
                             <option value="">Выберите хранилище</option>
@@ -178,6 +189,13 @@
                             <label class="form-check-label" for="include_tablespaces">
                                 Включать табличные пространства
                             </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="use_agent_backup" name="use_agent_backup">
+                            <label class="form-check-label" for="use_agent_backup">
+                                Снятие резервной копии средствами агента
+                            </label>
+                            <small class="form-text text-muted d-block">Если включено, бэкап будет выполняться на агенте и отправляться в хранилище</small>
                         </div>
                     </div>
                     
@@ -267,6 +285,230 @@
         </div>
     </div>
 </div>
+
+<!-- Modal для редактирования PostgreSQL задачи -->
+<div class="modal fade" id="editPostgresTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать задачу PostgreSQL бэкапа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editPostgresTaskForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_pg_task_name" class="form-label">Название задачи</label>
+                        <input type="text" class="form-control" id="edit_pg_task_name" name="name" required>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_agent_id" class="form-label">Агент</label>
+                            <select class="form-control" id="edit_pg_task_agent_id" name="agent_id">
+                                <option value="">Не указан</option>
+                                {% for agent in agents %}
+                                <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.ip_address }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_s3_config_id" class="form-label">S3 Конфигурация (устаревшее)</label>
+                            <select class="form-control" id="edit_pg_task_s3_config_id" name="s3_config_id">
+                                <option value="">Не указана</option>
+                                {% for s3 in s3_configs %}
+                                <option value="{{ s3.id }}">{{ s3.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="form-text text-muted">Используйте хранилище данных вместо этого</small>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_pg_task_storage_config_id" class="form-label">Хранилище данных</label>
+                        <select class="form-control" id="edit_pg_task_storage_config_id" name="storage_config_id">
+                            <option value="">Выберите хранилище</option>
+                            {% for storage in available_storage %}
+                            <option value="{{ storage.id }}">
+                                {{ storage.name }} ({{ storage.storage_type|upper }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Выберите хранилище для сохранения резервных копий</small>
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Параметры подключения</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_host" class="form-label">Хост</label>
+                            <input type="text" class="form-control" id="edit_pg_task_host" name="host">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_port" class="form-label">Порт</label>
+                            <input type="number" class="form-control" id="edit_pg_task_port" name="port" value="5432">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_username" class="form-label">Пользователь</label>
+                            <input type="text" class="form-control" id="edit_pg_task_username" name="username">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_password" class="form-label">Пароль</label>
+                            <input type="password" class="form-control" id="edit_pg_task_password" name="password" placeholder="Оставьте пустым, чтобы не менять">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_pg_task_database" class="form-label">Имя базы данных</label>
+                        <input type="text" class="form-control" id="edit_pg_task_database" name="database">
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Параметры бэкапа</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_backup_format" class="form-label">Формат бэкапа</label>
+                            <select class="form-control" id="edit_pg_task_backup_format" name="backup_format">
+                                <option value="custom">Custom (сжатый)</option>
+                                <option value="plain">Plain SQL</option>
+                                <option value="tar">Tar</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_pg_task_compression_level" class="form-label">Уровень сжатия (0-9)</label>
+                            <input type="number" class="form-control" id="edit_pg_task_compression_level" name="compression_level" value="6" min="0" max="9">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_include_schema" name="include_schema" checked>
+                            <label class="form-check-label" for="edit_pg_task_include_schema">
+                                Включать схему
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_include_data" name="include_data" checked>
+                            <label class="form-check-label" for="edit_pg_task_include_data">
+                                Включать данные
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_include_roles" name="include_roles">
+                            <label class="form-check-label" for="edit_pg_task_include_roles">
+                                Включать роли
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_include_tablespaces" name="include_tablespaces">
+                            <label class="form-check-label" for="edit_pg_task_include_tablespaces">
+                                Включать табличные пространства
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_use_agent_backup" name="use_agent_backup">
+                            <label class="form-check-label" for="edit_pg_task_use_agent_backup">
+                                Снятие резервной копии средствами агента
+                            </label>
+                            <small class="form-text text-muted d-block">Если включено, бэкап будет выполняться на агенте и отправляться в хранилище</small>
+                        </div>
+                    </div>
+                    
+                    <h6 class="mt-4 mb-3">Расписание</h6>
+                    <div class="mb-3">
+                        <label class="form-label">Расписание</label>
+                        <div class="mb-2">
+                            <label for="edit_pg_schedule_type" class="form-label small">Тип повторения</label>
+                            <select class="form-select" id="edit_pg_schedule_type" name="schedule_type" required onchange="updateEditPostgresScheduleFields()">
+                                <option value="daily">Каждый день в выбранное время</option>
+                                <option value="weekly">Раз в неделю в выбранный день и время</option>
+                                <option value="hourly">Каждый час в выбранную минуту</option>
+                                <option value="minutely">Каждую минуту</option>
+                            </select>
+                        </div>
+                        <div class="row" id="edit_pg_schedule_daily_weekly">
+                            <div class="col-md-6 mb-2">
+                                <label for="edit_pg_schedule_hour" class="form-label small">Час</label>
+                                <select class="form-select" id="edit_pg_schedule_hour" name="schedule_hour" onchange="updateEditPostgresScheduleFields()">
+                                    {% for h in range(24) %}
+                                    <option value="{{ h }}">{{ "%02d"|format(h) }}:00</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label for="edit_pg_schedule_minute" class="form-label small">Минута</label>
+                                <select class="form-select" id="edit_pg_schedule_minute" name="schedule_minute" onchange="updateEditPostgresScheduleFields()">
+                                    {% for m in range(0, 60, 5) %}
+                                    <option value="{{ m }}">{{ "%02d"|format(m) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2" id="edit_pg_schedule_weekly" style="display: none;">
+                            <label for="edit_pg_schedule_day_of_week" class="form-label small">День недели</label>
+                            <select class="form-select" id="edit_pg_schedule_day_of_week" name="schedule_day_of_week" onchange="updateEditPostgresScheduleFields()">
+                                <option value="0">Воскресенье</option>
+                                <option value="1">Понедельник</option>
+                                <option value="2">Вторник</option>
+                                <option value="3">Среда</option>
+                                <option value="4">Четверг</option>
+                                <option value="5">Пятница</option>
+                                <option value="6">Суббота</option>
+                            </select>
+                        </div>
+                        <div class="mb-2" id="edit_pg_schedule_hourly" style="display: none;">
+                            <label for="edit_pg_schedule_minute_hourly" class="form-label small">Минута</label>
+                            <select class="form-select" id="edit_pg_schedule_minute_hourly" name="schedule_minute_hourly" onchange="updateEditPostgresScheduleFields()">
+                                {% for m in range(0, 60, 5) %}
+                                <option value="{{ m }}">{{ "%02d"|format(m) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <input type="hidden" id="edit_pg_schedule_cron" name="schedule_cron" value="0 2 * * *">
+                        <small class="form-text text-muted" id="edit_pg_schedule_preview">Cron: <code>0 2 * * *</code> (каждый день в 02:00)</small>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="edit_pg_task_schedule_enabled" name="schedule_enabled" checked>
+                                <label class="form-check-label" for="edit_pg_task_schedule_enabled">
+                                    Включить расписание
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="edit_pg_task_cleanup_enabled" name="cleanup_enabled" checked>
+                                <label class="form-check-label" for="edit_pg_task_cleanup_enabled">
+                                    Включить очистку старых бэкапов
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_pg_task_cleanup_days" class="form-label">Удалять бэкапы старше (дней)</label>
+                        <input type="number" class="form-control" id="edit_pg_task_cleanup_days" name="cleanup_days" value="30" min="1">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_pg_task_is_active" name="is_active" checked>
+                            <label class="form-check-label" for="edit_pg_task_is_active">
+                                Активна
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -276,11 +518,9 @@ function executeBackup(taskId) {
         return;
     }
     
-    fetch(`/api/postgres-backup-tasks/${taskId}/execute`, {
+    fetch(`/api/web/postgres-backup-tasks/${taskId}/execute`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        }
+        credentials: 'same-origin'
     })
     .then(response => response.json())
     .then(data => {
@@ -295,6 +535,61 @@ function executeBackup(taskId) {
         alert('Ошибка: ' + error);
     });
 }
+
+// PostgreSQL Schedule type converter для редактирования
+function updateEditPostgresScheduleFields() {
+    const scheduleType = document.getElementById('edit_pg_schedule_type').value;
+    const dailyWeekly = document.getElementById('edit_pg_schedule_daily_weekly');
+    const weekly = document.getElementById('edit_pg_schedule_weekly');
+    const hourly = document.getElementById('edit_pg_schedule_hourly');
+    const cronInput = document.getElementById('edit_pg_schedule_cron');
+    const preview = document.getElementById('edit_pg_schedule_preview');
+    
+    if (!dailyWeekly || !weekly || !hourly || !cronInput || !preview) return;
+    
+    // Скрываем все поля
+    dailyWeekly.style.display = 'none';
+    weekly.style.display = 'none';
+    hourly.style.display = 'none';
+    
+    let cron = '';
+    let previewText = '';
+    
+    if (scheduleType === 'minutely') {
+        cron = '* * * * *';
+        previewText = 'Cron: <code>* * * * *</code> (каждую минуту)';
+    } else if (scheduleType === 'hourly') {
+        hourly.style.display = 'block';
+        const minute = document.getElementById('edit_pg_schedule_minute_hourly').value;
+        cron = minute + ' * * * *';
+        previewText = 'Cron: <code>' + cron + '</code> (каждый час в ' + minute.padStart(2, '0') + ' минут)';
+    } else if (scheduleType === 'daily') {
+        dailyWeekly.style.display = 'block';
+        const hour = document.getElementById('edit_pg_schedule_hour').value;
+        const minute = document.getElementById('edit_pg_schedule_minute').value;
+        cron = minute + ' ' + hour + ' * * *';
+        previewText = 'Cron: <code>' + cron + '</code> (каждый день в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+    } else if (scheduleType === 'weekly') {
+        dailyWeekly.style.display = 'block';
+        weekly.style.display = 'block';
+        const hour = document.getElementById('edit_pg_schedule_hour').value;
+        const minute = document.getElementById('edit_pg_schedule_minute').value;
+        const dayOfWeek = document.getElementById('edit_pg_schedule_day_of_week').value;
+        const dayNames = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
+        cron = minute + ' ' + hour + ' * * ' + dayOfWeek;
+        previewText = 'Cron: <code>' + cron + '</code> (каждую ' + dayNames[parseInt(dayOfWeek)] + ' в ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + ')';
+    }
+    
+    cronInput.value = cron;
+    preview.innerHTML = previewText;
+}
+
+// Привязываем обработчики событий для редактирования PostgreSQL расписания
+document.getElementById('edit_pg_schedule_type')?.addEventListener('change', updateEditPostgresScheduleFields);
+document.getElementById('edit_pg_schedule_hour')?.addEventListener('change', updateEditPostgresScheduleFields);
+document.getElementById('edit_pg_schedule_minute')?.addEventListener('change', updateEditPostgresScheduleFields);
+document.getElementById('edit_pg_schedule_minute_hourly')?.addEventListener('change', updateEditPostgresScheduleFields);
+document.getElementById('edit_pg_schedule_day_of_week')?.addEventListener('change', updateEditPostgresScheduleFields);
 
 // PostgreSQL Schedule type converter
 function updatePostgresScheduleFields() {
@@ -356,6 +651,105 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePostgresScheduleFields();
     }
 });
+
+function editPostgresTask(id) {
+    // Загружаем данные задачи через веб-эндпоинт (использует cookie авторизацию)
+    fetch('/api/web/postgres-backup-tasks/' + id, {
+        credentials: 'same-origin'
+    })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status === 401) {
+                    alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+                    window.location.href = '/login';
+                    return;
+                }
+                return response.json().then(data => {
+                    throw new Error(data.detail || 'Ошибка загрузки данных');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Заполняем форму редактирования
+            document.getElementById('edit_pg_task_name').value = data.name || '';
+            document.getElementById('edit_pg_task_agent_id').value = data.agent_id || '';
+            document.getElementById('edit_pg_task_s3_config_id').value = data.s3_config_id || '';
+            document.getElementById('edit_pg_task_host').value = data.host || '';
+            document.getElementById('edit_pg_task_port').value = data.port || 5432;
+            document.getElementById('edit_pg_task_username').value = data.username || '';
+            // Пароль не заполняем для безопасности
+            document.getElementById('edit_pg_task_database').value = data.database || '';
+            document.getElementById('edit_pg_task_backup_format').value = data.backup_format || 'custom';
+            document.getElementById('edit_pg_task_compression_level').value = data.compression_level || 6;
+            document.getElementById('edit_pg_task_include_schema').checked = data.include_schema !== false;
+            document.getElementById('edit_pg_task_include_data').checked = data.include_data !== false;
+            document.getElementById('edit_pg_task_include_roles').checked = data.include_roles || false;
+            document.getElementById('edit_pg_task_include_tablespaces').checked = data.include_tablespaces || false;
+            document.getElementById('edit_pg_task_use_agent_backup').checked = data.use_agent_backup || false;
+            document.getElementById('edit_pg_task_schedule_enabled').checked = data.schedule_enabled !== false;
+            document.getElementById('edit_pg_task_cleanup_enabled').checked = data.cleanup_enabled || false;
+            document.getElementById('edit_pg_task_cleanup_days').value = data.cleanup_days || 30;
+            document.getElementById('edit_pg_task_is_active').checked = data.is_active !== false;
+            
+            // Парсим cron для заполнения расписания
+            if (data.schedule_cron) {
+                const cronParts = data.schedule_cron.split(' ');
+                if (cronParts.length >= 5) {
+                    const minute = cronParts[0];
+                    const hour = cronParts[1];
+                    const dayOfWeek = cronParts[4];
+                    
+                    if (cronParts[0] === '*' && cronParts[1] === '*' && cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
+                        document.getElementById('edit_pg_schedule_type').value = 'minutely';
+                    } else if (cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
+                        document.getElementById('edit_pg_schedule_type').value = 'hourly';
+                        document.getElementById('edit_pg_schedule_minute_hourly').value = minute;
+                    } else if (cronParts[4] === '*') {
+                        document.getElementById('edit_pg_schedule_type').value = 'daily';
+                        document.getElementById('edit_pg_schedule_hour').value = hour;
+                        document.getElementById('edit_pg_schedule_minute').value = minute;
+                    } else {
+                        document.getElementById('edit_pg_schedule_type').value = 'weekly';
+                        document.getElementById('edit_pg_schedule_hour').value = hour;
+                        document.getElementById('edit_pg_schedule_minute').value = minute;
+                        document.getElementById('edit_pg_schedule_day_of_week').value = dayOfWeek;
+                    }
+                    updateEditPostgresScheduleFields();
+                }
+            }
+            
+            document.getElementById('editPostgresTaskForm').action = '/postgres-backups/' + id + '/edit';
+            const modal = new bootstrap.Modal(document.getElementById('editPostgresTaskModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading task:', error);
+            alert('Ошибка при загрузке данных задачи: ' + error.message);
+        });
+}
+
+function deletePostgresTask(id) {
+    if (confirm('Вы уверены, что хотите удалить эту задачу PostgreSQL бэкапа?')) {
+        fetch('/api/web/postgres-backup-tasks/' + id, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                return response.json().then(data => {
+                    alert('Ошибка при удалении задачи: ' + (data.detail || 'Неизвестная ошибка'));
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting task:', error);
+            alert('Ошибка при удалении задачи');
+        });
+    }
+}
 </script>
 {% endblock %}
 

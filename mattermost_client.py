@@ -17,7 +17,7 @@ class MattermostClient:
         self.timeout = aiohttp.ClientTimeout(total=10)
     
     async def send_message(self, text: str, username: str = "Backup Server", 
-                          icon_url: Optional[str] = None) -> bool:
+                          icon_url: Optional[str] = None, channel: Optional[str] = None) -> bool:
         """Отправляет сообщение в Mattermost"""
         if not self.webhook_url:
             return False
@@ -27,6 +27,10 @@ class MattermostClient:
             "username": username,
             "icon_url": icon_url or "https://mattermost.com/wp-content/uploads/2022/02/icon.png"
         }
+        
+        # Добавляем канал, если указан
+        if channel:
+            payload["channel"] = channel
         
         try:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
@@ -40,16 +44,16 @@ class MattermostClient:
             logger.error(f"Error sending message to Mattermost: {e}")
             return False
     
-    async def send_backup_alert(self, task_name: str, error_message: str) -> bool:
+    async def send_backup_alert(self, task_name: str, error_message: str, channel: Optional[str] = None) -> bool:
         """Отправляет уведомление о проблеме с бэкапом"""
         text = f"⚠️ **Проблема с резервным копированием**\n\n"
         text += f"**Задача:** {task_name}\n"
         text += f"**Ошибка:** {error_message}\n"
         text += f"**Время:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
-        return await self.send_message(text)
+        return await self.send_message(text, channel=channel)
     
-    async def send_daily_report(self, report_data: Dict[str, Any]) -> bool:
+    async def send_daily_report(self, report_data: Dict[str, Any], channel: Optional[str] = None) -> bool:
         """Отправляет ежедневный отчет о бэкапах"""
         text = "📊 **Ежедневный отчет о резервном копировании**\n\n"
         
@@ -77,11 +81,20 @@ class MattermostClient:
         
         text += f"**Время отчета:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
-        return await self.send_message(text)
+        return await self.send_message(text, channel=channel)
     
-    async def send_custom_report(self, report_text: str) -> bool:
+    async def send_custom_report(self, report_text: str, channel: Optional[str] = None) -> bool:
         """Отправляет пользовательский отчет"""
-        return await self.send_message(report_text)
+        return await self.send_message(report_text, channel=channel)
+    
+    async def send_test_message(self, channel: Optional[str] = None) -> bool:
+        """Отправляет тестовое сообщение"""
+        text = "✅ **Тестовое уведомление**\n\n"
+        text += "Это тестовое сообщение от системы резервного копирования.\n"
+        text += f"**Время:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        text += "Если вы видите это сообщение, значит интеграция с Mattermost настроена правильно! 🎉"
+        
+        return await self.send_message(text, channel=channel)
 
 
 

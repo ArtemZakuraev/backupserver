@@ -132,16 +132,24 @@ class ReportScheduler:
                 report.postgres_task_ids or []
             )
             
+            # Получаем настройки для канала
+            result = await session.execute(select(Settings))
+            settings = result.scalar_one_or_none()
+            channel = settings.mattermost_channel if settings else None
+            
             # Отправляем в Mattermost
             client = MattermostClient(webhook_url)
-            success = await client.send_custom_report(report_text)
+            success = await client.send_custom_report(report_text, channel=channel)
+            
+            if not success:
+                raise Exception("Failed to send report to Mattermost")
             
             # Сохраняем историю
             history = ReportHistory(
                 report_id=report.id,
-                status="success" if success else "error",
-                error_message=None if success else "Failed to send to Mattermost",
-                mattermost_response=str(success)
+                status="success",
+                error_message=None,
+                mattermost_response="sent"
             )
             session.add(history)
             
@@ -155,13 +163,17 @@ class ReportScheduler:
         except Exception as e:
             logger.error(f"Error sending report {report.id}: {e}")
             # Сохраняем ошибку
-            history = ReportHistory(
-                report_id=report.id,
-                status="error",
-                error_message=str(e)
-            )
-            session.add(history)
-            await session.commit()
+            try:
+                history = ReportHistory(
+                    report_id=report.id,
+                    status="error",
+                    error_message=str(e)
+                )
+                session.add(history)
+                await session.commit()
+            except Exception as commit_error:
+                logger.error(f"Error saving report history: {commit_error}")
+            raise  # Пробрасываем исключение дальше
     
     def calculate_next_send(self, report: Report) -> Optional[datetime]:
         """Вычисляет следующее время отправки"""
@@ -203,4 +215,7 @@ class ReportScheduler:
                 return next_send
         
         return None
+
+
+
 

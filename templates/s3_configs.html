@@ -257,23 +257,15 @@ function deleteS3Config(id) {
 }
 
 function editPostgresTask(id) {
-    // Загружаем данные задачи через API и открываем модальное окно редактирования
-    fetch('/api/postgres-backup-tasks/' + id)
-        .then(response => response.json())
-        .then(task => {
-            // Здесь нужно создать модальное окно для редактирования задачи PostgreSQL
-            // Пока просто перенаправляем на страницу редактирования
-            window.location.href = '/postgres-backups/' + id + '/edit';
-        });
+    // Перенаправляем на страницу редактирования
+    window.location.href = '/postgres-backups/' + id + '/edit';
 }
 
 function deletePostgresTask(id) {
     if (confirm('Вы уверены, что хотите удалить эту задачу PostgreSQL бэкапа?')) {
-        fetch('/api/postgres-backup-tasks/' + id, {
+        fetch('/api/web/postgres-backup-tasks/' + id, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            credentials: 'same-origin'
         })
         .then(response => {
             if (response.ok) {

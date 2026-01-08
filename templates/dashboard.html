@@ -45,8 +45,12 @@
                 </div>
                 <div class="mt-3">
                     <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-success me-2" style="width: 12px; height: 12px; padding: 0;"></span>
+                        <span>Удачные бэкапы: {{ "%.2f"|format(storage_stats.success_backups_gb) if storage_stats.success_backups_gb > 0 else "0" }} ГБ</span>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
                         <span class="badge bg-primary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
-                        <span>Резервные копии: {{ "%.2f"|format(storage_stats.used_gb) if storage_stats.used_gb > 0 else "0" }} ГБ</span>
+                        <span>Использовано: {{ "%.2f"|format(storage_stats.used_gb) if storage_stats.used_gb > 0 else "0" }} ГБ</span>
                     </div>
                     <div class="d-flex align-items-center mb-2">
                         <span class="badge bg-secondary me-2" style="width: 12px; height: 12px; padding: 0;"></span>
@@ -56,6 +60,15 @@
                         <span class="badge bg-info me-2" style="width: 12px; height: 12px; padding: 0;"></span>
                         <span>Свободно: {{ "%.2f"|format(storage_stats.free_gb) if storage_stats.free_gb > 0 else "0" }} ГБ</span>
                     </div>
+                    {% if s3_info %}
+                    <hr class="my-2">
+                    <div class="small text-muted">
+                        <strong>Хранилища:</strong><br>
+                        {% for s3 in s3_info %}
+                        • {{ s3.name }}: {{ "%.2f"|format(s3.used_space_gb) if s3.used_space_gb else "0" }}/{{ "%.2f"|format(s3.total_space_gb) if s3.total_space_gb else "?" }} ГБ<br>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -303,15 +316,16 @@
 // График хранилища данных
 const storageCtx = document.getElementById('storageChart');
 if (storageCtx) {
+    const successBackupsGb = {{ storage_stats.success_backups_gb if storage_stats.success_backups_gb else 0 }};
     const usedGb = {{ storage_stats.used_gb if storage_stats.used_gb else 0 }};
     const otherGb = {{ storage_stats.other_gb if storage_stats.other_gb else 0 }};
     const freeGb = {{ storage_stats.free_gb if storage_stats.free_gb else 0 }};
     
     const storageData = {
-        labels: ['Резервные копии', 'Другое', 'Свободно'],
+        labels: ['Удачные бэкапы', 'Использовано', 'Другое', 'Свободно'],
         datasets: [{
-            data: [usedGb, otherGb, freeGb],
-            backgroundColor: ['#0078D4', '#9E9E9E', '#2196F3'],
+            data: [successBackupsGb, usedGb, otherGb, freeGb],
+            backgroundColor: ['#4CAF50', '#0078D4', '#9E9E9E', '#2196F3'],
             borderWidth: 0
         }]
     };

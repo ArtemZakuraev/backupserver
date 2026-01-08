@@ -61,7 +61,7 @@ class DailyReportGenerator:
                     # Отправляем отчет
                     report_data = await self.generate_report(session)
                     client = MattermostClient(settings.mattermost_webhook_url)
-                    await client.send_daily_report(report_data)
+                    await client.send_daily_report(report_data, channel=settings.mattermost_channel)
                     logger.info("Daily report sent")
             except Exception as e:
                 logger.error(f"Error parsing report time: {e}")

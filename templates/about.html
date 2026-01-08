@@ -15,6 +15,11 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-8">
+                        {% if settings and settings.logo_path %}
+                        <div class="mb-4">
+                            <img src="/static/uploads/logo" alt="Логотип" style="max-height: 100px; max-width: 100%;">
+                        </div>
+                        {% endif %}
                         <h3 class="mb-3">{{ app_name }}</h3>
                         <p class="lead">Система управления резервным копированием для отдела развития инженерных практик</p>
                         
@@ -25,7 +30,7 @@
                             <tbody>
                                 <tr>
                                     <td><strong>Версия:</strong></td>
-                                    <td><span class="badge bg-primary">1.0.1</span></td>
+                                    <td><span class="badge bg-primary">{{ app_version }}</span></td>
                                 </tr>
                                 <tr>
                                     <td><strong>Автор:</strong></td>

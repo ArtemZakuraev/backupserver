@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # Настройки приложения
     app_name: str = "Сервер резервного копирования отдела развития инженерных практик"
-    app_version: str = "1.0.0"
+    app_version: str = "1.0.8"
     debug: bool = True
     
     # Порт сервера

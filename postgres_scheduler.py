@@ -9,12 +9,14 @@ from typing import List
 import logging
 
 from database import async_session_maker
-from models import PostgresBackupTask, PostgresBackupHistory, S3Config, StorageConfig
+from models import PostgresBackupTask, PostgresBackupHistory, S3Config, StorageConfig, Agent
 from postgres_backup import PostgresBackupExecutor
+from agent_client import AgentClient
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from s3_client import S3Client
 from datetime import timedelta
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -169,9 +171,14 @@ class PostgresBackupScheduler:
             await session.commit()
             
             try:
-                # Выполняем бэкап
-                executor = PostgresBackupExecutor(task, storage_config=storage_config, s3_config=s3_config)
-                result = await executor.execute_backup()
+                # Проверяем, нужно ли выполнять бэкап на агенте
+                if hasattr(task, 'use_agent_backup') and task.use_agent_backup:
+                    # Выполняем бэкап на агенте
+                    result = await self.execute_backup_on_agent(task, storage_config, s3_config, session)
+                else:
+                    # Выполняем бэкап на сервере
+                    executor = PostgresBackupExecutor(task, storage_config=storage_config, s3_config=s3_config)
+                    result = await executor.execute_backup()
                 
                 # Обновляем историю
                 history.finished_at = datetime.utcnow()
@@ -179,9 +186,9 @@ class PostgresBackupScheduler:
                 
                 if result["success"]:
                     history.status = "success"
-                    history.dump_size_mb = result["dump_size_mb"]
-                    history.s3_path = result["s3_path"]
-                    history.dump_filename = result["dump_filename"]
+                    history.dump_size_mb = result.get("dump_size_mb", 0)
+                    history.s3_path = result.get("s3_path", "")
+                    history.dump_filename = result.get("dump_filename", "")
                     task.last_status = "success"
                     logger.info(f"PostgreSQL backup task {task_id} completed successfully")
                 else:
@@ -204,6 +211,105 @@ class PostgresBackupScheduler:
             # Очистка старых бэкапов
             if task.cleanup_enabled:
                 await self.cleanup_old_backups(task, storage_config=storage_config, s3_config=s3_config, session=session)
+    
+    async def execute_backup_on_agent(self, task, storage_config, s3_config, session):
+        """Выполняет бэкап PostgreSQL на агенте"""
+        result = {
+            "success": False,
+            "error": None,
+            "dump_size_mb": 0,
+            "s3_path": "",
+            "dump_filename": ""
+        }
+        
+        try:
+            # Получаем агента
+            result_agent = await session.execute(select(Agent).where(Agent.id == task.agent_id))
+            agent = result_agent.scalar_one_or_none()
+            if not agent:
+                result["error"] = "Agent not found"
+                return result
+            
+            # Проверяем доступность агента
+            client = AgentClient(agent.ip_address, agent.port)
+            if not await client.ping():
+                result["error"] = "Agent is not available"
+                return result
+            
+            # Настраиваем подключение к PostgreSQL на агенте
+            connection_id = task.id  # Используем ID задачи как ID подключения
+            
+            # Расшифровываем пароль для отправки агенту
+            from postgres_backup import decrypt_password
+            password = decrypt_password(task.password) if task.password else ""
+            
+            # Отправляем конфигурацию подключения
+            await client.set_postgres_connection(
+                connection_id=connection_id,
+                host=task.host or "localhost",
+                port=task.port or 5432,
+                username=task.username or "postgres",
+                password=password,
+                database=task.database
+            )
+            
+            # Подготавливаем конфигурацию хранилища для агента
+            storage_type = "s3"
+            storage_config_json = None
+            
+            if storage_config:
+                storage_type = storage_config.storage_type
+                config_data = storage_config.config_data if isinstance(storage_config.config_data, dict) else {}
+                storage_config_json = json.dumps(config_data)
+            elif s3_config:
+                storage_type = "s3"
+                config_data = {
+                    "endpoint": s3_config.endpoint,
+                    "access_key": s3_config.access_key,
+                    "secret_key": s3_config.secret_key,
+                    "bucket_name": s3_config.bucket_name,
+                    "region": s3_config.region,
+                    "use_ssl": s3_config.use_ssl
+                }
+                storage_config_json = json.dumps(config_data)
+            else:
+                result["error"] = "No storage configuration provided"
+                return result
+            
+            # Отправляем конфигурацию задачи PostgreSQL агенту
+            task_config = {
+                "task_id": task.id,
+                "connection_id": connection_id,
+                "name": task.name,
+                "database": task.database,
+                "backup_format": task.backup_format,
+                "compression_level": task.compression_level,
+                "include_schema": task.include_schema,
+                "include_data": task.include_data,
+                "include_roles": task.include_roles,
+                "include_tablespaces": task.include_tablespaces,
+                "storage_type": storage_type,
+                "storage_config": storage_config_json
+            }
+            
+            await client.set_postgres_task_config(task_config)
+            
+            # Выполняем бэкап на агенте
+            agent_result = await client.execute_postgres_backup(task.id, connection_id)
+            
+            if agent_result.get("success"):
+                result["success"] = True
+                result["dump_size_mb"] = agent_result.get("dump_size_mb", 0)
+                result["s3_path"] = agent_result.get("storage_path", "")
+                result["dump_filename"] = agent_result.get("dump_filename", "")
+            else:
+                result["error"] = agent_result.get("error", "Unknown error from agent")
+            
+        except Exception as e:
+            logger.error(f"Error executing PostgreSQL backup on agent: {e}")
+            result["error"] = str(e)
+        
+        return result
     
     async def cleanup_old_backups(self, task, storage_config=None, s3_config=None, session=None):
         """Удаляет старые бэкапы из хранилища"""

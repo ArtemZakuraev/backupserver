@@ -134,11 +134,12 @@ document.getElementById('restoreForm').addEventListener('submit', function(e) {
     const s3Path = document.getElementById('restore_s3_path').value;
     const targetDatabase = document.getElementById('target_database').value;
     
-    fetch(`/api/postgres-backup-tasks/${currentTaskId}/restore`, {
+    fetch(`/api/web/postgres-backup-tasks/${currentTaskId}/restore`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
+        credentials: 'same-origin',
         body: JSON.stringify({
             task_id: currentTaskId,
             s3_path: s3Path,

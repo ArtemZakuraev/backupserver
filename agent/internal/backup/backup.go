@@ -2,10 +2,15 @@ package backup
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,8 +112,35 @@ func ExecuteBackup(task config.Task, serverIP string, log *logger.Logger) (*Back
 		result.FilesCount = countFiles(task.SourcePath)
 	}
 
-	// Загружаем в S3
-	if task.S3Endpoint != "" && task.S3Bucket != "" {
+	// Загружаем в хранилище в зависимости от типа
+	if task.StorageType == "local" {
+		// Загружаем на другой агент через HTTP API
+		if result.ArchivePath != "" {
+			storagePath, err := uploadToLocalAgent(task, result.ArchivePath, log)
+			if err != nil {
+				result.Error = fmt.Sprintf("Failed to upload to local agent: %v", err)
+				return result, err
+			}
+			result.S3Path = storagePath
+			
+			// Обновляем запись о бэкапе
+			if err := UpdateBackupRecord(archiveName, storagePath, time.Now()); err != nil {
+				log.Warnf("Failed to update backup record: %v", err)
+			}
+			
+			// Удаляем локальный архив после успешной загрузки
+			if err := os.Remove(result.ArchivePath); err != nil {
+				log.Warnf("Failed to remove archive after upload: %v", err)
+			} else {
+				log.Infof("Archive removed after successful upload: %s", result.ArchivePath)
+			}
+		} else {
+			// Для директорий без архива пока не поддерживается
+			result.Error = "Directory upload to local agent without archive is not yet supported"
+			return result, fmt.Errorf(result.Error)
+		}
+	} else if task.S3Endpoint != "" && task.S3Bucket != "" {
+		// Загружаем в S3 (старая логика для обратной совместимости)
 		if result.ArchivePath != "" {
 			// Загружаем архив
 			s3Path, err := uploadToS3(task, result.ArchivePath, log)
@@ -378,3 +410,103 @@ func cleanupOldBackups(task config.Task, log *logger.Logger) error {
 	return nil
 }
 
+// uploadToLocalAgent отправляет файл на другой агент через HTTP API
+func uploadToLocalAgent(task config.Task, archivePath string, log *logger.Logger) (string, error) {
+	// Парсим конфигурацию хранилища
+	var storageConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(task.StorageConfig), &storageConfig); err != nil {
+		return "", fmt.Errorf("failed to parse storage config: %v", err)
+	}
+
+	// Получаем параметры агента-хранилища
+	agentIP, ok := storageConfig["agent_ip"].(string)
+	if !ok {
+		return "", fmt.Errorf("agent_ip not found in storage config")
+	}
+
+	agentPort, ok := storageConfig["agent_port"].(float64)
+	if !ok {
+		agentPort = 11540 // Порт по умолчанию
+	}
+
+	basePath, ok := storageConfig["base_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("base_path not found in storage config")
+	}
+
+	// Формируем URL агента-хранилища с правильным кодированием
+	agentURL := fmt.Sprintf("http://%s:%d/api/storage/upload?base_path=%s", agentIP, int(agentPort), url.QueryEscape(basePath))
+	log.Infof("Uploading to local agent: %s", agentURL)	// Открываем файл для загрузки
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open archive: %v", err)
+	}
+	defer file.Close()
+
+	// Получаем информацию о файле
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("failed to get file info: %v", err)
+	}
+
+	// Создаем multipart form
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+
+	// Добавляем файл
+	part, err := writer.CreateFormFile("file", filepath.Base(archivePath))
+	if err != nil {
+		return "", fmt.Errorf("failed to create form file: %v", err)
+	}
+
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return "", fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to close writer: %v", err)
+	}
+
+	// Создаем HTTP запрос
+	req, err := http.NewRequest("POST", agentURL, &requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Hostname", "backup-agent") // Для прохождения authMiddleware
+
+	// Выполняем запрос
+	client := &http.Client{
+		Timeout: 30 * time.Minute, // Долгий таймаут для больших файлов
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Проверяем ответ
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Парсим ответ
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	storagePath, ok := result["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response format")
+	}
+
+	log.Infof("Successfully uploaded to local agent: %s (size: %.2f MB)", storagePath, float64(fileInfo.Size())/(1024*1024))
+
+	return storagePath, nil
+}

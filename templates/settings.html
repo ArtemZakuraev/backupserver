@@ -10,7 +10,19 @@
                 <h4 class="mb-0"><i class="fas fa-cog me-2"></i>Настройки системы</h4>
             </div>
             <div class="card-body">
-                <form method="POST" action="/settings/save">
+                {% if success %}
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="fas fa-check-circle me-2"></i>{{ success }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+                {% if error %}
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="fas fa-exclamation-circle me-2"></i>{{ error }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+                <form method="POST" action="/settings/save" enctype="multipart/form-data">
                     <h5 class="mb-3"><i class="fab fa-mattermost me-2"></i>Интеграция с Mattermost</h5>
                     
                     <div class="mb-3">
@@ -31,6 +43,21 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label for="mattermost_channel" class="form-label">Канал Mattermost</label>
+                        <input type="text" class="form-control" id="mattermost_channel" name="mattermost_channel" 
+                               value="{{ settings.mattermost_channel or '' }}" 
+                               placeholder="general">
+                        <small class="form-text text-muted">Имя канала для отправки уведомлений (например: general, backups). Оставьте пустым для отправки в канал по умолчанию webhook.</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-info" id="testMattermostBtn">
+                            <i class="fas fa-paper-plane me-2"></i>Отправить тестовое уведомление
+                        </button>
+                        <div id="testMattermostResult" class="mt-2"></div>
+                    </div>
+                    
+                    <div class="mb-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="mattermost_daily_report" name="mattermost_daily_report" {% if settings.mattermost_daily_report %}checked{% endif %}>
                             <label class="form-check-label" for="mattermost_daily_report">
@@ -43,6 +70,99 @@
                         <label for="mattermost_report_time" class="form-label">Время отправки ежедневного отчета</label>
                         <input type="time" class="form-control" id="mattermost_report_time" name="mattermost_report_time" 
                                value="{{ settings.mattermost_report_time or '09:00' }}">
+                    </div>
+                    
+                    <hr class="my-4">
+                    
+                    <h5 class="mb-3"><i class="fas fa-lock me-2"></i>Настройки TLS/HTTPS</h5>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="tls_enabled" name="tls_enabled" {% if settings.tls_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="tls_enabled">
+                                Включить HTTPS (использовать TLS сертификаты)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="tls_cert_folder" class="form-label">Папка с сертификатами</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="tls_cert_folder" name="tls_cert_folder" 
+                                   value="{{ settings.tls_cert_folder or '' }}" 
+                                   placeholder="/path/to/certificates">
+                            <button type="button" class="btn btn-outline-secondary" id="validateFolderBtn">
+                                <i class="fas fa-check me-1"></i>Проверить
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">Укажите полный путь к папке, содержащей сертификаты</small>
+                        <div id="folderValidationResult" class="mt-2"></div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="tls_cert_path" class="form-label">Файл сертификата (.crt)</label>
+                            <select class="form-select" id="tls_cert_path" name="tls_cert_path">
+                                <option value="">-- Выберите файл --</option>
+                            </select>
+                            <small class="form-text text-muted">Выберите файл сертификата из указанной папки</small>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="tls_key_path" class="form-label">Файл приватного ключа (.key)</label>
+                            <select class="form-select" id="tls_key_path" name="tls_key_path">
+                                <option value="">-- Выберите файл --</option>
+                            </select>
+                            <small class="form-text text-muted">Выберите файл приватного ключа из указанной папки</small>
+                        </div>
+                    </div>
+                    
+                    {% if settings.tls_cert_path or settings.tls_key_path %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Текущие настройки:</strong><br>
+                        {% if settings.tls_cert_path %}
+                            Сертификат: <code>{{ settings.tls_cert_path }}</code><br>
+                        {% endif %}
+                        {% if settings.tls_key_path %}
+                            Ключ: <code>{{ settings.tls_key_path }}</code>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if settings.tls_enabled %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Внимание!</strong> После изменения настроек TLS необходимо перезапустить сервер для применения изменений.
+                    </div>
+                    {% endif %}
+                    
+                    <hr class="my-4">
+                    
+                    <h5 class="mb-3"><i class="fas fa-image me-2"></i>Логотип и Favicon</h5>
+                    
+                    <div class="mb-3">
+                        <label for="logo_file" class="form-label">Логотип</label>
+                        <input type="file" class="form-control" id="logo_file" name="logo_file" accept="image/*">
+                        <small class="form-text text-muted">Загрузите файл логотипа (PNG, JPG, SVG). Рекомендуемый размер: 200x50px</small>
+                        {% if settings.logo_path %}
+                        <div class="mt-2">
+                            <img src="/static/uploads/logo" alt="Логотип" style="max-height: 50px; max-width: 200px;" class="img-thumbnail">
+                            <small class="d-block text-muted mt-1">Текущий логотип</small>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="favicon_file" class="form-label">Favicon</label>
+                        <input type="file" class="form-control" id="favicon_file" name="favicon_file" accept="image/*">
+                        <small class="form-text text-muted">Загрузите файл favicon (ICO, PNG). Рекомендуемый размер: 32x32px или 16x16px</small>
+                        {% if settings.favicon_path %}
+                        <div class="mt-2">
+                            <img src="/static/uploads/favicon" alt="Favicon" style="max-height: 32px; max-width: 32px;" class="img-thumbnail">
+                            <small class="d-block text-muted mt-1">Текущий favicon</small>
+                        </div>
+                        {% endif %}
                     </div>
                     
                     <hr class="my-4">
@@ -65,6 +185,32 @@
                         </div>
                     </div>
                     
+                    <hr class="my-4">
+                    
+                    <h5 class="mb-3"><i class="fas fa-hdd me-2"></i>Мониторинг дисков агентов</h5>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="disk_space_check_interval" class="form-label">Интервал проверки дисков (секунды)</label>
+                            <input type="number" class="form-control" id="disk_space_check_interval" name="disk_space_check_interval" 
+                                   value="{{ settings.disk_space_check_interval or 3600 }}" min="300">
+                            <small class="form-text text-muted">Как часто проверять свободное место на дисках агентов (минимум 5 минут)</small>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="disk_space_warning_threshold" class="form-label">Порог предупреждения о свободном месте (%)</label>
+                            <input type="number" class="form-control" id="disk_space_warning_threshold" name="disk_space_warning_threshold" 
+                                   value="{{ settings.disk_space_warning_threshold or 10 }}" min="5" max="50" step="1">
+                            <small class="form-text text-muted">Отправлять предупреждение, когда свободного места меньше указанного процента (от 5% до 50%)</small>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Информация:</strong> При достижении порога свободного места на диске агента будет отправлено уведомление в Mattermost (если настроено). 
+                        Предупреждения отправляются не чаще одного раза в час для каждого диска.
+                    </div>
+                    
                     <div class="mt-4">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save me-2"></i>Сохранить настройки
@@ -79,6 +225,140 @@
     </div>
 </div>
 {% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentCertFolder = '{{ settings.tls_cert_folder or "" }}';
+    let currentCertPath = '{{ settings.tls_cert_path or "" }}';
+    let currentKeyPath = '{{ settings.tls_key_path or "" }}';
+    
+    // Загружаем файлы при изменении папки
+    document.getElementById('tls_cert_folder').addEventListener('change', function() {
+        const folderPath = this.value;
+        if (folderPath) {
+            validateAndLoadFiles(folderPath);
+        } else {
+            clearFileSelects();
+        }
+    });
+    
+    // Кнопка проверки папки
+    document.getElementById('validateFolderBtn').addEventListener('click', function() {
+        const folderPath = document.getElementById('tls_cert_folder').value;
+        if (folderPath) {
+            validateAndLoadFiles(folderPath);
+        }
+    });
+    
+    // Загружаем файлы при загрузке страницы, если папка указана
+    if (currentCertFolder) {
+        validateAndLoadFiles(currentCertFolder);
+    }
+    
+    function validateAndLoadFiles(folderPath) {
+        const resultDiv = document.getElementById('folderValidationResult');
+        resultDiv.innerHTML = '<div class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Проверка папки...</div>';
+        
+        // Проверяем валидность пути
+        fetch(`/api/files/validate-path?folder_path=${encodeURIComponent(folderPath)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.valid) {
+                    resultDiv.innerHTML = '<div class="alert alert-success mb-0"><i class="fas fa-check-circle me-2"></i>Папка доступна</div>';
+                    loadFiles(folderPath);
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-circle me-2"></i>${data.error || 'Ошибка проверки папки'}</div>`;
+                    clearFileSelects();
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-circle me-2"></i>Ошибка: ${error.message}</div>`;
+                clearFileSelects();
+            });
+    }
+    
+    function loadFiles(folderPath) {
+        // Загружаем .crt файлы
+        fetch(`/api/files/list?folder_path=${encodeURIComponent(folderPath)}&file_extensions=.crt,.pem`)
+            .then(response => response.json())
+            .then(data => {
+                const certSelect = document.getElementById('tls_cert_path');
+                certSelect.innerHTML = '<option value="">-- Выберите файл --</option>';
+                
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file.path;
+                        option.textContent = file.name;
+                        if (file.path === currentCertPath) {
+                            option.selected = true;
+                        }
+                        certSelect.appendChild(option);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка загрузки .crt файлов:', error);
+            });
+        
+        // Загружаем .key файлы
+        fetch(`/api/files/list?folder_path=${encodeURIComponent(folderPath)}&file_extensions=.key`)
+            .then(response => response.json())
+            .then(data => {
+                const keySelect = document.getElementById('tls_key_path');
+                keySelect.innerHTML = '<option value="">-- Выберите файл --</option>';
+                
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file.path;
+                        option.textContent = file.name;
+                        if (file.path === currentKeyPath) {
+                            option.selected = true;
+                        }
+                        keySelect.appendChild(option);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка загрузки .key файлов:', error);
+            });
+    }
+    
+    function clearFileSelects() {
+        document.getElementById('tls_cert_path').innerHTML = '<option value="">-- Выберите файл --</option>';
+        document.getElementById('tls_key_path').innerHTML = '<option value="">-- Выберите файл --</option>';
+    }
+    
+    // Тестовое уведомление Mattermost
+    document.getElementById('testMattermostBtn').addEventListener('click', function() {
+        const resultDiv = document.getElementById('testMattermostResult');
+        resultDiv.innerHTML = '<div class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Отправка тестового уведомления...</div>';
+        
+        fetch('/settings/test-mattermost', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                resultDiv.innerHTML = `<div class="alert alert-success mb-0"><i class="fas fa-check-circle me-2"></i>${data.message || 'Тестовое уведомление успешно отправлено!'}</div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-circle me-2"></i>${data.error || 'Ошибка при отправке тестового уведомления'}</div>`;
+            }
+        })
+        .catch(error => {
+            resultDiv.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-circle me-2"></i>Ошибка: ${error.message}</div>`;
+        });
+    });
+</script>
+{% endblock %}
+
+
+
 
 
 

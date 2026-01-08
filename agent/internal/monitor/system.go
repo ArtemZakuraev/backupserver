@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -280,9 +281,42 @@ func GetAllDisks() ([]DiskInfo, error) {
 	return disks, nil
 }
 
+// StorageSpaceInfo содержит информацию о месте на диске
+type StorageSpaceInfo struct {
+	UsedSpaceGB  float64 `json:"used_space_gb"`
+	FreeSpaceGB  float64 `json:"free_space_gb"`
+	TotalSpaceGB float64 `json:"total_space_gb"`
+}
 
+// GetStorageSpace получает информацию о месте на диске для указанного пути
+func GetStorageSpace(path string) (*StorageSpaceInfo, error) {
+	// Используем df для получения информации о диске
+	cmd := exec.Command("df", "-BG", path)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
 
+	lines := strings.Split(string(output), "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("invalid df output")
+	}
 
+	fields := strings.Fields(lines[1])
+	if len(fields) < 4 {
+		return nil, fmt.Errorf("invalid df output format")
+	}
+
+	total, _ := strconv.ParseFloat(strings.TrimSuffix(fields[1], "G"), 64)
+	used, _ := strconv.ParseFloat(strings.TrimSuffix(fields[2], "G"), 64)
+	available, _ := strconv.ParseFloat(strings.TrimSuffix(fields[3], "G"), 64)
+
+	return &StorageSpaceInfo{
+		UsedSpaceGB:  used,
+		FreeSpaceGB:  available,
+		TotalSpaceGB: total,
+	}, nil
+}
 
 
 

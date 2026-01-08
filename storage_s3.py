@@ -71,7 +71,33 @@ class S3Storage(StorageInterface):
         """Список файлов в S3"""
         try:
             objects = self.client.list_objects(self.bucket_name, prefix=prefix, recursive=True)
-            return [obj.object_name for obj in objects]
+            backups = []
+            for obj in objects:
+                # Полный путь для восстановления
+                object_name = obj.object_name
+                # Имя файла для отображения
+                file_name = object_name
+                if "/" in file_name:
+                    file_name = file_name.split("/")[-1]
+                
+                # Преобразуем last_modified в ISO строку
+                last_modified = ""
+                if obj.last_modified:
+                    if hasattr(obj.last_modified, 'isoformat'):
+                        last_modified = obj.last_modified.isoformat()
+                    else:
+                        last_modified = str(obj.last_modified)
+                
+                backups.append({
+                    "name": object_name,  # Полный путь для восстановления
+                    "object_name": object_name,  # Полный путь для совместимости
+                    "display_name": file_name,  # Только имя файла для отображения
+                    "size": obj.size,
+                    "last_modified": last_modified,
+                    "last_modified_time": last_modified,  # Для совместимости
+                    "etag": obj.etag or ""
+                })
+            return backups
         except S3Error as e:
             logger.error(f"S3 list error: {e}")
             return []
@@ -93,8 +119,7 @@ class S3Storage(StorageInterface):
     async def get_space_info(self) -> Dict[str, float]:
         """Получает информацию о свободном месте в S3"""
         try:
-            # Для S3 сложно получить точную информацию о месте
-            # Используем приблизительную оценку на основе объектов
+            # Для S3/MinIO получаем информацию о размере bucket
             total_size = 0
             count = 0
             
@@ -106,12 +131,41 @@ class S3Storage(StorageInterface):
             # Конвертируем в GB
             used_gb = total_size / (1024 ** 3)
             
-            # Для S3 обычно нет ограничений, но можно указать максимальный размер bucket
-            # Здесь возвращаем только использованное место
+            # Попытка получить информацию о диске через MinIO Admin API
+            # Это работает только если у нас есть доступ к Admin API
+            free_space_gb = None
+            total_space_gb = None
+            
+            try:
+                # Пытаемся получить информацию о диске через MinIO Admin API
+                # Это требует дополнительных прав доступа и может не работать для всех конфигураций
+                import aiohttp
+                import json
+                
+                # Формируем URL для MinIO Admin API (если доступен)
+                admin_url = None
+                if self.endpoint:
+                    # Пытаемся определить админ URL
+                    if self.use_ssl:
+                        admin_url = f"https://{self.endpoint}/minio/admin/v3/info"
+                    else:
+                        admin_url = f"http://{self.endpoint}/minio/admin/v3/info"
+                
+                # Примечание: MinIO Admin API требует специальных учетных данных
+                # и обычно недоступен через стандартный S3 API
+                # Для получения информации о диске нужно использовать MinIO Client (mc) или Admin API
+                # с правильными учетными данными администратора
+                
+                # Для большинства случаев S3/MinIO хранилищ, информация о свободном месте
+                # недоступна через стандартный S3 API, поэтому возвращаем только использованное место
+                
+            except Exception as e:
+                logger.debug(f"Could not get disk space info from MinIO Admin API: {e}")
+            
             return {
                 "used_space_gb": used_gb,
-                "free_space_gb": None,  # Неизвестно для S3
-                "total_space_gb": None
+                "free_space_gb": free_space_gb,  # Обычно недоступно для S3/MinIO через стандартный API
+                "total_space_gb": total_space_gb  # Обычно недоступно для S3/MinIO через стандартный API
             }
         except S3Error as e:
             logger.error(f"S3 space info error: {e}")
@@ -129,5 +183,8 @@ class S3Storage(StorageInterface):
             return True, None
         except Exception as e:
             return False, str(e)
+
+
+
 
 

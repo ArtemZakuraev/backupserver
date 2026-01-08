@@ -19,6 +19,7 @@ import (
 func main() {
 	// Обработка флагов командной строки для выполнения задач из cron
 	taskID := flag.Int("task-id", 0, "Task ID to execute")
+	postgresTaskID := flag.Int("postgres-task-id", 0, "PostgreSQL Task ID to execute")
 	flag.Parse()
 
 	// Инициализация логгера
@@ -48,6 +49,36 @@ func main() {
 		}
 		if result.Success {
 			log.Infof("Task completed successfully. Size: %d bytes, Files: %d", result.ArchiveSize, result.FilesCount)
+		}
+		os.Exit(0)
+	}
+
+	// Если указан postgres-task-id, выполняем PostgreSQL задачу и выходим
+	if *postgresTaskID > 0 {
+		task := cfg.GetPostgresTask(*postgresTaskID)
+		if task == nil {
+			log.Fatalf("PostgreSQL task %d not found", *postgresTaskID)
+		}
+		log.Infof("Executing PostgreSQL task %d from cron", *postgresTaskID)
+		
+		// Получаем подключение к БД
+		conn := cfg.GetPostgresConnection(task.ConnectionID)
+		if conn == nil {
+			log.Fatalf("PostgreSQL connection %d not found for task %d", task.ConnectionID, *postgresTaskID)
+		}
+		
+		// Получаем IP сервера из конфига
+		serverIP := cfg.ServerIP
+		if serverIP == "" {
+			serverIP = "unknown"
+		}
+		
+		result, err := backup.ExecutePostgresBackup(*task, *conn, serverIP, log)
+		if err != nil {
+			log.Fatalf("PostgreSQL task execution failed: %v", err)
+		}
+		if result.Success {
+			log.Infof("PostgreSQL task completed successfully. Size: %.2f MB", result.DumpSizeMB)
 		}
 		os.Exit(0)
 	}

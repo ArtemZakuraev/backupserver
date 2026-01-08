@@ -34,6 +34,7 @@ class Agent(Base):
     backup_tasks = relationship("BackupTask", back_populates="agent")
     agent_status = relationship("AgentStatus", back_populates="agent", uselist=False)
     storage_config = relationship("StorageConfig", foreign_keys=[storage_config_id])
+    disks = relationship("AgentDisk", back_populates="agent", cascade="all, delete-orphan")
 
 
 class AgentStatus(Base):
@@ -85,6 +86,34 @@ class AgentBackupInfo(Base):
     agent = relationship("Agent")
     agent_status = relationship("AgentStatus", back_populates="monitored_backups")
     task = relationship("BackupTask")
+
+
+class AgentDisk(Base):
+    """Информация о дисках агента"""
+    __tablename__ = "agent_disks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
+    
+    # Информация о диске
+    device = Column(String(255), nullable=False)  # /dev/sda1
+    mount_point = Column(String(500), nullable=False)  # /, /home, /var
+    filesystem = Column(String(50))  # ext4, xfs, etc.
+    total_gb = Column(Float, nullable=False)
+    used_gb = Column(Float, nullable=False)
+    available_gb = Column(Float, nullable=False)
+    used_percent = Column(Float)  # Процент использования
+    
+    # Время последнего обновления
+    last_update = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Связи
+    agent = relationship("Agent")
+    
+    # Уникальный индекс для комбинации agent_id + mount_point
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
 
 
 class StorageConfig(Base):
@@ -152,6 +181,7 @@ class Settings(Base):
     
     # Mattermost настройки
     mattermost_webhook_url = Column(String(500))
+    mattermost_channel = Column(String(100))  # Имя канала для отправки уведомлений
     mattermost_enabled = Column(Boolean, default=False)
     mattermost_daily_report = Column(Boolean, default=False)
     mattermost_report_time = Column(String(10), default="09:00")  # Время отправки отчета
@@ -159,6 +189,20 @@ class Settings(Base):
     # Настройки мониторинга
     agent_poll_interval = Column(Integer, default=60)  # Интервал опроса агентов в секундах
     s3_check_interval = Column(Integer, default=86400)  # Интервал проверки S3 в секундах (24 часа)
+    
+    # TLS/HTTPS настройки
+    tls_enabled = Column(Boolean, default=False)  # Включить HTTPS
+    tls_cert_path = Column(String(500))  # Путь к файлу сертификата (.crt)
+    tls_key_path = Column(String(500))  # Путь к файлу приватного ключа (.key)
+    tls_cert_folder = Column(String(500))  # Папка с сертификатами
+    
+    # Логотип и favicon
+    logo_path = Column(String(500))  # Путь к файлу логотипа
+    favicon_path = Column(String(500))  # Путь к файлу favicon
+    
+    # Настройки мониторинга дисков
+    disk_space_check_interval = Column(Integer, default=3600)  # Интервал проверки дисков в секундах (по умолчанию 1 час)
+    disk_space_warning_threshold = Column(Integer, default=10)  # Порог предупреждения о свободном месте в процентах (50-5%)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -238,14 +282,15 @@ class PostgresBackupTask(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)  # Агент, на котором выполняется задача
     s3_config_id = Column(Integer, ForeignKey("s3_configs.id"), nullable=True)  # Для обратной совместимости
     storage_config_id = Column(Integer, ForeignKey("storage_configs.id"), nullable=True)  # Новое хранилище
     
-    # Параметры подключения к PostgreSQL
-    host = Column(String(255), nullable=False)
-    port = Column(Integer, default=5432)
-    username = Column(String(100), nullable=False)
-    password = Column(String(255), nullable=False)  # Зашифрованное
+    # Параметры подключения к PostgreSQL (теперь хранятся на агенте, но оставляем для обратной совместимости)
+    host = Column(String(255), nullable=True)  # Теперь nullable, т.к. хранится на агенте
+    port = Column(Integer, default=5432, nullable=True)
+    username = Column(String(100), nullable=True)
+    password = Column(String(255), nullable=True)  # Зашифрованное, теперь nullable
     database = Column(String(100), nullable=False)
     
     # Параметры бэкапа
@@ -255,6 +300,7 @@ class PostgresBackupTask(Base):
     include_data = Column(Boolean, default=True)
     include_roles = Column(Boolean, default=False)
     include_tablespaces = Column(Boolean, default=False)
+    use_agent_backup = Column(Boolean, default=False)  # Выполнять бэкап средствами агента
     
     # Расписание
     schedule_cron = Column(String(100), nullable=False)  # Cron выражение
@@ -275,6 +321,7 @@ class PostgresBackupTask(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Связи
+    agent = relationship("Agent", foreign_keys=[agent_id])
     s3_config = relationship("S3Config", foreign_keys=[s3_config_id])
     storage_config = relationship("StorageConfig", back_populates="postgres_backup_tasks", foreign_keys=[storage_config_id])
     backup_history = relationship("PostgresBackupHistory", back_populates="task")

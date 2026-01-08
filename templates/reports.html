@@ -79,6 +79,9 @@
                                     <button class="btn btn-sm btn-success" onclick="sendReportNow({{ report.id }})">
                                         <i class="fas fa-paper-plane"></i> Отправить
                                     </button>
+                                    <button class="btn btn-sm btn-warning" onclick="editReport({{ report.id }})">
+                                        <i class="fas fa-edit"></i> Редактировать
+                                    </button>
                                     <button class="btn btn-sm btn-danger" onclick="deleteReport({{ report.id }})">
                                         <i class="fas fa-trash"></i> Удалить
                                     </button>
@@ -251,7 +254,223 @@
     </div>
 </div>
 
+<!-- Modal для редактирования отчета -->
+<div class="modal fade" id="editReportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать отчет</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editReportForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_report_name" class="form-label">Название отчета</label>
+                        <input type="text" class="form-control" id="edit_report_name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_report_description" class="form-label">Описание (опционально)</label>
+                        <textarea class="form-control" id="edit_report_description" name="description" rows="2"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Выберите агентов</label>
+                        <div class="border p-2" style="max-height: 150px; overflow-y: auto;">
+                            {% for agent in agents %}
+                            <div class="form-check">
+                                <input class="form-check-input edit-agent-checkbox" type="checkbox" 
+                                       value="{{ agent.id }}" id="edit_agent_{{ agent.id }}" name="agent_ids">
+                                <label class="form-check-label" for="edit_agent_{{ agent.id }}">
+                                    {{ agent.name }} ({{ agent.ip_address }})
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Выберите задачи PostgreSQL</label>
+                        <div class="border p-2" style="max-height: 150px; overflow-y: auto;">
+                            {% for task in pg_tasks %}
+                            <div class="form-check">
+                                <input class="form-check-input edit-pg-task-checkbox" type="checkbox" 
+                                       value="{{ task.id }}" id="edit_pg_task_{{ task.id }}" name="postgres_task_ids">
+                                <label class="form-check-label" for="edit_pg_task_{{ task.id }}">
+                                    {{ task.name }} ({{ task.database }})
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_report_send_to_mattermost" name="send_to_mattermost">
+                            <label class="form-check-label" for="edit_report_send_to_mattermost">
+                                Отправлять в Mattermost
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="edit_report_enabled" name="enabled" checked>
+                            <label class="form-check-label" for="edit_report_enabled">
+                                Включен
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <h6>Периодичность отправки</h6>
+                    
+                    <div class="mb-3">
+                        <label for="edit_schedule_type" class="form-label">Тип расписания</label>
+                        <select class="form-control" id="edit_schedule_type" name="schedule_type" required onchange="updateEditScheduleFields()">
+                            <option value="daily">Раз в день</option>
+                            <option value="weekly">Раз в неделю</option>
+                            <option value="hourly">Каждый час</option>
+                            <option value="custom_hours">Каждые N часов</option>
+                        </select>
+                    </div>
+                    
+                    <div id="edit_schedule_daily" class="schedule-options">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="edit_schedule_hour_daily" class="form-label">Час</label>
+                                <input type="number" class="form-control" id="edit_schedule_hour_daily" min="0" max="23" value="9">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="edit_schedule_minute_daily" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="edit_schedule_minute_daily" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="edit_schedule_weekly" class="schedule-options" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="edit_schedule_day_of_week_select" class="form-label">День недели</label>
+                                <select class="form-control" id="edit_schedule_day_of_week_select">
+                                    <option value="0">Понедельник</option>
+                                    <option value="1">Вторник</option>
+                                    <option value="2">Среда</option>
+                                    <option value="3">Четверг</option>
+                                    <option value="4">Пятница</option>
+                                    <option value="5">Суббота</option>
+                                    <option value="6">Воскресенье</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="edit_schedule_hour_weekly" class="form-label">Час</label>
+                                <input type="number" class="form-control" id="edit_schedule_hour_weekly" min="0" max="23" value="9">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="edit_schedule_minute_weekly" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="edit_schedule_minute_weekly" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="edit_schedule_hourly" class="schedule-options" style="display: none;">
+                        <div class="mb-3">
+                            <label for="edit_schedule_minute_hourly" class="form-label">Минута</label>
+                            <input type="number" class="form-control" id="edit_schedule_minute_hourly" min="0" max="59" value="0">
+                        </div>
+                    </div>
+                    
+                    <div id="edit_schedule_custom_hours" class="schedule-options" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="edit_schedule_hours_interval_input" class="form-label">Интервал (часы)</label>
+                                <input type="number" class="form-control" id="edit_schedule_hours_interval_input" min="1" value="2">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="edit_schedule_minute_custom" class="form-label">Минута</label>
+                                <input type="number" class="form-control" id="edit_schedule_minute_custom" min="0" max="59" value="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="edit_schedule_hour" name="schedule_hour" value="">
+                    <input type="hidden" id="edit_schedule_minute" name="schedule_minute" value="">
+                    <input type="hidden" id="edit_schedule_day_of_week_hidden" name="schedule_day_of_week" value="">
+                    <input type="hidden" id="edit_schedule_hours_interval_hidden" name="schedule_hours_interval" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary" onclick="prepareEditFormData(event)">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+function updateEditScheduleFields() {
+    const scheduleType = document.getElementById('edit_schedule_type').value;
+    
+    // Скрываем все опции
+    document.querySelectorAll('#editReportModal .schedule-options').forEach(el => el.style.display = 'none');
+    
+    // Показываем нужные опции
+    if (scheduleType === 'daily') {
+        document.getElementById('edit_schedule_daily').style.display = 'block';
+    } else if (scheduleType === 'weekly') {
+        document.getElementById('edit_schedule_weekly').style.display = 'block';
+    } else if (scheduleType === 'hourly') {
+        document.getElementById('edit_schedule_hourly').style.display = 'block';
+    } else if (scheduleType === 'custom_hours') {
+        document.getElementById('edit_schedule_custom_hours').style.display = 'block';
+    }
+}
+
+function prepareEditFormData(event) {
+    // Собираем выбранные агенты
+    const agentCheckboxes = document.querySelectorAll('#editReportModal .edit-agent-checkbox:checked');
+    const agentIds = Array.from(agentCheckboxes).map(cb => cb.value).join(',');
+    // Устанавливаем значения в скрытые поля формы
+    agentCheckboxes.forEach(cb => {
+        cb.name = 'agent_ids';
+    });
+    
+    // Собираем выбранные задачи PostgreSQL
+    const pgTaskCheckboxes = document.querySelectorAll('#editReportModal .edit-pg-task-checkbox:checked');
+    pgTaskCheckboxes.forEach(cb => {
+        cb.name = 'postgres_task_ids';
+    });
+    
+    // Устанавливаем значения расписания в зависимости от типа
+    const scheduleType = document.getElementById('edit_schedule_type').value;
+    const scheduleHourInput = document.getElementById('edit_schedule_hour');
+    const scheduleMinuteInput = document.getElementById('edit_schedule_minute');
+    const scheduleDayOfWeekInput = document.getElementById('edit_schedule_day_of_week_hidden');
+    const scheduleHoursIntervalInput = document.getElementById('edit_schedule_hours_interval_hidden');
+    
+    if (scheduleType === 'daily') {
+        scheduleHourInput.value = document.getElementById('edit_schedule_hour_daily').value;
+        scheduleMinuteInput.value = document.getElementById('edit_schedule_minute_daily').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'weekly') {
+        scheduleHourInput.value = document.getElementById('edit_schedule_hour_weekly').value;
+        scheduleMinuteInput.value = document.getElementById('edit_schedule_minute_weekly').value;
+        scheduleDayOfWeekInput.value = document.getElementById('edit_schedule_day_of_week_select').value;
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'hourly') {
+        scheduleHourInput.value = '';
+        scheduleMinuteInput.value = document.getElementById('edit_schedule_minute_hourly').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = '';
+    } else if (scheduleType === 'custom_hours') {
+        scheduleHourInput.value = '';
+        scheduleMinuteInput.value = document.getElementById('edit_schedule_minute_custom').value;
+        scheduleDayOfWeekInput.value = '';
+        scheduleHoursIntervalInput.value = document.getElementById('edit_schedule_hours_interval_input').value;
+    }
+}
 function updateScheduleFields() {
     const scheduleType = document.getElementById('schedule_type').value;
     
@@ -313,36 +532,121 @@ function prepareFormData(event) {
 
 function sendReportNow(reportId) {
     if (confirm('Отправить отчет сейчас?')) {
-        fetch(`/api/reports/${reportId}/send`, {
+        fetch(`/api/web/reports/${reportId}/send`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            credentials: 'same-origin'
         })
         .then(response => {
             if (response.ok) {
+                return response.json();
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Ошибка при отправке отчета');
+                });
+            }
+        })
+        .then(data => {
+            if (data.success) {
+                alert('Отчет отправлен успешно!');
                 location.reload();
             } else {
-                alert('Ошибка при отправке отчета');
+                alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
             }
+        })
+        .catch(error => {
+            console.error('Error sending report:', error);
+            alert('Ошибка при отправке отчета: ' + error.message);
         });
     }
 }
 
+function editReport(reportId) {
+    // Загружаем данные отчета через веб-эндпоинт (использует cookie авторизацию)
+    fetch('/api/web/reports/' + reportId, {
+        credentials: 'same-origin'
+    })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status === 401) {
+                    alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+                    window.location.href = '/login';
+                    return;
+                }
+                return response.json().then(data => {
+                    throw new Error(data.detail || 'Ошибка загрузки данных');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Заполняем форму редактирования
+            document.getElementById('edit_report_name').value = data.name || '';
+            document.getElementById('edit_report_description').value = data.description || '';
+            document.getElementById('edit_report_send_to_mattermost').checked = data.send_to_mattermost || false;
+            document.getElementById('edit_report_enabled').checked = data.enabled !== false;
+            
+            // Устанавливаем выбранные агенты
+            const agentIds = Array.isArray(data.agent_ids) ? data.agent_ids : (data.agent_ids ? data.agent_ids.split(',').map(id => parseInt(id.trim())) : []);
+            document.querySelectorAll('.edit-agent-checkbox').forEach(cb => {
+                cb.checked = agentIds.includes(parseInt(cb.value));
+            });
+            
+            // Устанавливаем выбранные задачи PostgreSQL
+            const pgTaskIds = Array.isArray(data.postgres_task_ids) ? data.postgres_task_ids : (data.postgres_task_ids ? data.postgres_task_ids.split(',').map(id => parseInt(id.trim())) : []);
+            document.querySelectorAll('.edit-pg-task-checkbox').forEach(cb => {
+                cb.checked = pgTaskIds.includes(parseInt(cb.value));
+            });
+            
+            // Устанавливаем расписание
+            if (data.schedule_type) {
+                document.getElementById('edit_schedule_type').value = data.schedule_type;
+                if (data.schedule_hour !== null && data.schedule_hour !== undefined) {
+                    document.getElementById('edit_schedule_hour_daily').value = data.schedule_hour;
+                    document.getElementById('edit_schedule_hour_weekly').value = data.schedule_hour;
+                }
+                if (data.schedule_minute !== null && data.schedule_minute !== undefined) {
+                    document.getElementById('edit_schedule_minute_daily').value = data.schedule_minute;
+                    document.getElementById('edit_schedule_minute_weekly').value = data.schedule_minute;
+                    document.getElementById('edit_schedule_minute_hourly').value = data.schedule_minute;
+                    document.getElementById('edit_schedule_minute_custom').value = data.schedule_minute;
+                }
+                if (data.schedule_day_of_week !== null && data.schedule_day_of_week !== undefined) {
+                    document.getElementById('edit_schedule_day_of_week_select').value = data.schedule_day_of_week;
+                }
+                if (data.schedule_hours_interval !== null && data.schedule_hours_interval !== undefined) {
+                    document.getElementById('edit_schedule_hours_interval_input').value = data.schedule_hours_interval;
+                }
+                updateEditScheduleFields();
+            }
+            
+            document.getElementById('editReportForm').action = '/reports/' + reportId + '/edit';
+            const modal = new bootstrap.Modal(document.getElementById('editReportModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading report:', error);
+            alert('Ошибка при загрузке данных отчета: ' + error.message);
+        });
+}
+
 function deleteReport(reportId) {
     if (confirm('Вы уверены, что хотите удалить этот отчет?')) {
-        fetch(`/api/reports/${reportId}`, {
+        fetch(`/api/web/reports/${reportId}`, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            credentials: 'same-origin'
         })
         .then(response => {
             if (response.ok) {
                 location.reload();
             } else {
-                alert('Ошибка при удалении отчета');
+                return response.json().then(data => {
+                    alert('Ошибка при удалении отчета: ' + (data.detail || 'Неизвестная ошибка'));
+                });
             }
+        })
+        .catch(error => {
+            console.error('Error deleting report:', error);
+            alert('Ошибка при удалении отчета');
         });
     }
 }

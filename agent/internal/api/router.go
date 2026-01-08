@@ -1,7 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"backup-server-agent/internal/backup"
 	"backup-server-agent/internal/config"
@@ -41,6 +44,19 @@ func NewRouter(cfg *config.Config, log *logger.Logger, cronMgr *cron.CronManager
 		api.POST("/task/config", router.setTaskConfig)
 		api.POST("/task/execute", router.executeTask)
 		api.GET("/backups", router.getBackups)
+		
+		// PostgreSQL endpoints
+		api.POST("/postgres/connection", router.setPostgresConnection)
+		api.DELETE("/postgres/connection/:id", router.deletePostgresConnection)
+		api.GET("/postgres/connections", router.getPostgresConnections)
+		api.POST("/postgres/task/config", router.setPostgresTaskConfig)
+		api.DELETE("/postgres/task/:id", router.deletePostgresTask)
+		api.POST("/postgres/backup", router.executePostgresBackup)
+		api.POST("/postgres/restore", router.executePostgresRestore)
+		
+		// Storage endpoints
+		api.POST("/storage/upload", router.uploadFile)
+		api.POST("/storage/space", router.getStorageSpace)
 	}
 
 	return r
@@ -152,6 +168,8 @@ func (r *Router) executeTask(c *gin.Context) {
 		S3SecretKey     string `json:"s3_secret_key"`
 		S3Bucket        string `json:"s3_bucket"`
 		S3Region        string `json:"s3_region"`
+		StorageType     string `json:"storage_type"`
+		StorageConfig   string `json:"storage_config"`
 		CleanupEnabled  bool   `json:"cleanup_enabled"`
 		CleanupDays     int    `json:"cleanup_days"`
 		IsDockerCompose bool   `json:"is_docker_compose"`
@@ -174,6 +192,8 @@ func (r *Router) executeTask(c *gin.Context) {
 		S3SecretKey:      req.S3SecretKey,
 		S3Bucket:         req.S3Bucket,
 		S3Region:         req.S3Region,
+		StorageType:      req.StorageType,
+		StorageConfig:    req.StorageConfig,
 		CleanupEnabled:   req.CleanupEnabled,
 		CleanupDays:      req.CleanupDays,
 		IsDockerCompose:  req.IsDockerCompose,
@@ -233,3 +253,249 @@ func (r *Router) getBackups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"backups": backups})
 }
 
+// PostgreSQL connection endpoints
+
+func (r *Router) setPostgresConnection(c *gin.Context) {
+	var conn config.PostgresConnection
+	if err := c.ShouldBindJSON(&conn); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Обновляем конфигурацию
+	r.config.AddOrUpdatePostgresConnection(conn)
+
+	// Сохраняем конфигурацию
+	if err := config.Save(r.config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (r *Router) deletePostgresConnection(c *gin.Context) {
+	connID := c.Param("id")
+	if connID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "connection id required"})
+		return
+	}
+
+	var id int
+	if _, err := fmt.Sscanf(connID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid connection id"})
+		return
+	}
+
+	// Удаляем подключение
+	r.config.RemovePostgresConnection(id)
+
+	// Сохраняем конфигурацию
+	if err := config.Save(r.config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (r *Router) getPostgresConnections(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"connections": r.config.PostgresConnections})
+}
+
+// PostgreSQL task endpoints
+
+func (r *Router) setPostgresTaskConfig(c *gin.Context) {
+	var task config.PostgresTask
+	if err := c.ShouldBindJSON(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Обновляем задачу
+	config.AddOrUpdatePostgresTask(task)
+
+	// Обновляем cron
+	r.cronManager.AddPostgresTask(task)
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (r *Router) deletePostgresTask(c *gin.Context) {
+	taskID := c.Param("id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id required"})
+		return
+	}
+
+	var id int
+	if _, err := fmt.Sscanf(taskID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+
+	// Удаляем задачу
+	config.RemovePostgresTask(id)
+
+	// Удаляем из cron
+	r.cronManager.RemovePostgresTask(id)
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (r *Router) executePostgresBackup(c *gin.Context) {
+	var req struct {
+		TaskID       int `json:"task_id"`
+		ConnectionID int `json:"connection_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Получаем задачу
+	task := config.GetPostgresTask(req.TaskID)
+	if task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	// Получаем подключение
+	conn := r.config.GetPostgresConnection(req.ConnectionID)
+	if conn == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "connection not found"})
+		return
+	}
+
+	// Получаем IP сервера из конфига
+	serverIP := r.config.ServerIP
+	if serverIP == "" {
+		serverIP = "unknown"
+	}
+
+	// Выполняем бэкап
+	result, err := backup.ExecutePostgresBackup(*task, *conn, serverIP, r.logger)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      result.Success,
+		"dump_size_mb": result.DumpSizeMB,
+		"dump_filename": result.DumpFilename,
+		"storage_path": result.StoragePath,
+		"error":        result.Error,
+	})
+}
+
+func (r *Router) executePostgresRestore(c *gin.Context) {
+	var req struct {
+		TaskID         int    `json:"task_id"`
+		ConnectionID   int    `json:"connection_id"`
+		StoragePath    string `json:"storage_path"`
+		TargetDatabase string `json:"target_database,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Получаем задачу
+	task := config.GetPostgresTask(req.TaskID)
+	if task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	// Получаем подключение
+	conn := r.config.GetPostgresConnection(req.ConnectionID)
+	if conn == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "connection not found"})
+		return
+	}
+
+	// Выполняем восстановление
+	result, err := backup.RestorePostgresBackup(*task, *conn, req.StoragePath, req.TargetDatabase, r.logger)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": result.Success,
+		"error":   result.Error,
+	})
+}
+
+// Storage upload endpoint
+func (r *Router) uploadFile(c *gin.Context) {
+	// Получаем параметры из query string
+	basePath := c.Query("base_path")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "base_path parameter is required"})
+		return
+	}
+
+	// Получаем файл из multipart form
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required: " + err.Error()})
+		return
+	}	// Создаем директорию если её нет
+	if err := os.MkdirAll(basePath, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory: " + err.Error()})
+		return
+	}
+
+	// Формируем полный путь к файлу
+	fullPath := filepath.Join(basePath, file.Filename)
+
+	// Сохраняем файл
+	if err := c.SaveUploadedFile(file, fullPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file: " + err.Error()})
+		return
+	}
+
+	r.logger.Infof("File uploaded successfully: %s (size: %d bytes)", fullPath, file.Size)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"path":    fullPath,
+		"size":    file.Size,
+	})
+}
+
+// Storage space endpoint
+func (r *Router) getStorageSpace(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path parameter is required"})
+		return
+	}
+
+	// Получаем информацию о месте на диске
+	spaceInfo, err := monitor.GetStorageSpace(req.Path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get storage space: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, spaceInfo)
+}

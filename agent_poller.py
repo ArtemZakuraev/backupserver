@@ -9,7 +9,7 @@ from typing import List
 import logging
 
 from database import async_session_maker
-from models import Agent, AgentStatus, AgentBackupInfo, BackupTask
+from models import Agent, AgentStatus, AgentBackupInfo, BackupTask, AgentDisk
 from agent_client import AgentClient
 from s3_client import S3Client
 from mattermost_client import MattermostClient
@@ -86,6 +86,11 @@ class AgentPoller:
                 agent_status.network_tx_mb = system_info.network_tx_mb
                 agent.last_seen = datetime.utcnow()
             
+            # Получаем информацию о всех дисках
+            disks_info = await client.get_all_disks()
+            if disks_info:
+                await self.update_disks_info(agent, disks_info, session)
+            
             # Получаем информацию о бэкапах
             backup_info = await client.get_backup_info()
             if backup_info:
@@ -94,6 +99,30 @@ class AgentPoller:
         agent_status.is_online = is_online
         agent_status.last_update = datetime.utcnow()
         await session.commit()
+    
+    async def update_disks_info(self, agent: Agent, disks_info: List[dict], session: AsyncSession):
+        """Обновляет информацию о дисках агента"""
+        # Удаляем старую информацию о дисках
+        result = await session.execute(
+            select(AgentDisk).where(AgentDisk.agent_id == agent.id)
+        )
+        old_disks = result.scalars().all()
+        for old_disk in old_disks:
+            await session.delete(old_disk)
+        
+        # Добавляем новую информацию о дисках
+        for disk_data in disks_info:
+            disk = AgentDisk(
+                agent_id=agent.id,
+                device=disk_data.get("device", ""),
+                mount_point=disk_data.get("mount_point", ""),
+                filesystem=disk_data.get("filesystem"),
+                total_gb=disk_data.get("total_gb", 0),
+                used_gb=disk_data.get("used_gb", 0),
+                available_gb=disk_data.get("available_gb", 0),
+                used_percent=disk_data.get("used_percent", 0)
+            )
+            session.add(disk)
     
     async def update_backup_info(self, agent: Agent, agent_status: AgentStatus, 
                                 backup_info: List[dict], session: AsyncSession):
@@ -105,8 +134,10 @@ class AgentPoller:
         app_settings = result_settings.scalar_one_or_none()
         
         mattermost_client = None
+        mattermost_channel = None
         if app_settings and app_settings.mattermost_enabled and app_settings.mattermost_webhook_url:
             mattermost_client = MattermostClient(app_settings.mattermost_webhook_url)
+            mattermost_channel = app_settings.mattermost_channel
         
         # Удаляем старую информацию
         result = await session.execute(
@@ -169,6 +200,7 @@ class AgentPoller:
                     if old_status != "error":
                         await mattermost_client.send_backup_alert(
                             task.name,
-                            backup_data.get("error_message", "Unknown error")
+                            backup_data.get("error_message", "Unknown error"),
+                            channel=mattermost_channel
                         )
 

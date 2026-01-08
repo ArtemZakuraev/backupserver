@@ -20,6 +20,9 @@ type Config struct {
 	// Настройки хранилища по умолчанию для агента
 	DefaultStorageType   string `json:"default_storage_type,omitempty"`   // s3, sftp, nfs, local
 	DefaultStorageConfig string `json:"default_storage_config,omitempty"` // JSON строка с настройками хранилища
+	// Настройки подключения к PostgreSQL
+	PostgresConnections []PostgresConnection `json:"postgres_connections,omitempty"`
+	PostgresTasks       []PostgresTask       `json:"postgres_tasks,omitempty"`
 }
 
 type Task struct {
@@ -40,6 +43,35 @@ type Task struct {
 	CleanupDays      int    `json:"cleanup_days"`
 	IsDockerCompose  bool   `json:"is_docker_compose"`
 	DockerComposePath string `json:"docker_compose_path"`
+	ScheduleCron     string `json:"schedule_cron"`
+}
+
+// PostgresConnection хранит настройки подключения к PostgreSQL
+type PostgresConnection struct {
+	ID       int    `json:"id"`       // ID задачи на сервере
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"` // Зашифрованный пароль
+	Database string `json:"database"`
+}
+
+// PostgresTask хранит задачу резервного копирования PostgreSQL
+type PostgresTask struct {
+	TaskID           int    `json:"task_id"`           // ID задачи на сервере
+	ConnectionID     int    `json:"connection_id"`     // ID подключения к БД
+	Name             string `json:"name"`
+	Database         string `json:"database"`
+	BackupFormat     string `json:"backup_format"`     // custom, plain, tar, directory
+	CompressionLevel int    `json:"compression_level"` // 0-9
+	IncludeSchema    bool   `json:"include_schema"`
+	IncludeData      bool   `json:"include_data"`
+	IncludeRoles     bool   `json:"include_roles"`
+	IncludeTablespaces bool `json:"include_tablespaces"`
+	StorageType      string `json:"storage_type"`     // s3, sftp, nfs, local
+	StorageConfig    string `json:"storage_config"`   // JSON строка с настройками хранилища
+	CleanupEnabled   bool   `json:"cleanup_enabled"`
+	CleanupDays      int    `json:"cleanup_days"`
 	ScheduleCron     string `json:"schedule_cron"`
 }
 
@@ -116,6 +148,82 @@ func (c *Config) GetTask(taskID int) *Task {
 	for _, t := range c.Tasks {
 		if t.TaskID == taskID {
 			return &t
+		}
+	}
+	return nil
+}
+
+func (c *Config) AddOrUpdatePostgresConnection(conn PostgresConnection) {
+	for i, pc := range c.PostgresConnections {
+		if pc.ID == conn.ID {
+			c.PostgresConnections[i] = conn
+			return
+		}
+	}
+	c.PostgresConnections = append(c.PostgresConnections, conn)
+}
+
+func (c *Config) RemovePostgresConnection(connID int) {
+	var newConns []PostgresConnection
+	for _, pc := range c.PostgresConnections {
+		if pc.ID != connID {
+			newConns = append(newConns, pc)
+		}
+	}
+	c.PostgresConnections = newConns
+}
+
+func (c *Config) GetPostgresConnection(connID int) *PostgresConnection {
+	for i := range c.PostgresConnections {
+		if c.PostgresConnections[i].ID == connID {
+			return &c.PostgresConnections[i]
+		}
+	}
+	return nil
+}
+
+// Методы для работы с PostgreSQL задачами в структуре Config
+func (c *Config) AddOrUpdatePostgresTask(task PostgresTask) {
+	for i, t := range c.PostgresTasks {
+		if t.TaskID == task.TaskID {
+			c.PostgresTasks[i] = task
+			return
+		}
+	}
+	c.PostgresTasks = append(c.PostgresTasks, task)
+}
+
+func (c *Config) RemovePostgresTask(taskID int) {
+	var newTasks []PostgresTask
+	for _, t := range c.PostgresTasks {
+		if t.TaskID != taskID {
+			newTasks = append(newTasks, t)
+		}
+	}
+	c.PostgresTasks = newTasks
+}
+
+func (c *Config) GetPostgresTask(taskID int) *PostgresTask {
+	for i := range c.PostgresTasks {
+		if c.PostgresTasks[i].TaskID == taskID {
+			return &c.PostgresTasks[i]
+		}
+	}
+	return nil
+}
+
+// Глобальные функции для обратной совместимости (используют глобальную переменную)
+// ВАЖНО: Эти функции устарели, используйте методы Config
+var globalPostgresTasks []PostgresTask
+
+func AddOrUpdatePostgresTask(task PostgresTask) {
+	globalPostgresTasks = append(globalPostgresTasks, task)
+}
+
+func GetPostgresTask(taskID int) *PostgresTask {
+	for i := range globalPostgresTasks {
+		if globalPostgresTasks[i].TaskID == taskID {
+			return &globalPostgresTasks[i]
 		}
 	}
 	return nil

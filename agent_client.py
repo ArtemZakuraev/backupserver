@@ -114,4 +114,90 @@ class AgentClient:
         except Exception as e:
             logger.error(f"Error getting disks info from agent {self.ip_address}:{self.port}: {e}")
             return None
+    
+    async def set_postgres_connection(self, connection_id: int, host: str, port: int, username: str, password: str, database: str) -> bool:
+        """Настраивает подключение к PostgreSQL на агенте"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/postgres/connection",
+                    json={
+                        "id": connection_id,
+                        "host": host,
+                        "port": port,
+                        "username": username,
+                        "password": password,
+                        "database": database
+                    }
+                ) as response:
+                    return response.status == 200
+        except Exception as e:
+            logger.error(f"Error setting PostgreSQL connection on agent {self.ip_address}:{self.port}: {e}")
+            return False
+    
+    async def set_postgres_task_config(self, task_config: Dict[str, Any]) -> bool:
+        """Отправляет конфигурацию задачи PostgreSQL агенту"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/postgres/task/config",
+                    json=task_config
+                ) as response:
+                    return response.status == 200
+        except Exception as e:
+            logger.error(f"Error sending PostgreSQL task config to agent {self.ip_address}:{self.port}: {e}")
+            return False
+    
+    async def execute_postgres_backup(self, task_id: int, connection_id: int) -> Dict[str, Any]:
+        """Запускает выполнение задачи резервного копирования PostgreSQL на агенте"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/postgres/backup",
+                    json={
+                        "task_id": task_id,
+                        "connection_id": connection_id
+                    }
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {"success": False, "error": f"HTTP {response.status}"}
+        except Exception as e:
+            logger.error(f"Error executing PostgreSQL backup on agent {self.ip_address}:{self.port}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def execute_postgres_restore(self, task_id: int, connection_id: int, storage_path: str, target_database: Optional[str] = None) -> Dict[str, Any]:
+        """Запускает восстановление PostgreSQL на агенте"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/postgres/restore",
+                    json={
+                        "task_id": task_id,
+                        "connection_id": connection_id,
+                        "storage_path": storage_path,
+                        "target_database": target_database
+                    }
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {"success": False, "error": f"HTTP {response.status}"}
+        except Exception as e:
+            logger.error(f"Error executing PostgreSQL restore on agent {self.ip_address}:{self.port}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_storage_space(self, path: str) -> Optional[Dict[str, float]]:
+        """Получает информацию о месте на диске для указанного пути"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/storage/space",
+                    json={"path": path}
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return None
+        except Exception as e:
+            logger.error(f"Error getting storage space from agent {self.ip_address}:{self.port}: {e}")
+            return None
 

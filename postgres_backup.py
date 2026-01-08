@@ -113,11 +113,16 @@ class PostgresBackupExecutor:
             elif not self.task.include_data:
                 cmd.append("--schema-only")
             
-            if self.task.include_roles:
-                cmd.append("--roles-only")
+            # Примечание: pg_dump не поддерживает флаг --roles-only
+            # Роли нужно дампить отдельно через pg_dumpall --roles-only
+            # Если нужно включить роли в дамп, это делается автоматически при дампе схемы
+            # Для отдельного дампа ролей нужно использовать pg_dumpall --roles-only
+            # Здесь мы просто пропускаем этот флаг, так как он не поддерживается в pg_dump
             
-            if self.task.include_tablespaces:
-                cmd.append("--tablespaces")
+            # Tablespaces включены по умолчанию в pg_dump
+            # Если нужно исключить tablespaces, используем --no-tablespaces
+            if not self.task.include_tablespaces:
+                cmd.append("--no-tablespaces")
             
             # Устанавливаем переменную окружения с паролем
             env = os.environ.copy()
@@ -203,7 +208,10 @@ class PostgresBackupExecutor:
         
         return result
     
-    async def restore_backup(self, storage_path: str, target_database: Optional[str] = None) -> Dict[str, Any]:
+    async def restore_backup(self, storage_path: str, target_database: Optional[str] = None, 
+                             restore_remote: bool = False, remote_host: Optional[str] = None,
+                             remote_port: Optional[int] = None, remote_database: Optional[str] = None,
+                             remote_username: Optional[str] = None, remote_password: Optional[str] = None) -> Dict[str, Any]:
         """Восстанавливает базу данных из резервной копии"""
         result = {
             "success": False,
@@ -211,11 +219,25 @@ class PostgresBackupExecutor:
         }
         
         try:
-            # Расшифровываем пароль
-            password = decrypt_password(self.task.password)
+            # Определяем параметры подключения
+            if restore_remote and remote_host:
+                # Восстановление на сторонний сервер
+                restore_host = remote_host
+                restore_port = remote_port or 5432
+                restore_username = remote_username
+                restore_password = remote_password
+                restore_db = remote_database
+            else:
+                # Восстановление на исходный сервер
+                restore_host = self.task.host
+                restore_port = self.task.port or 5432
+                restore_username = self.task.username
+                restore_password = decrypt_password(self.task.password) if self.task.password else None
+                restore_db = target_database or self.task.database
             
-            # Определяем целевую БД
-            restore_db = target_database or self.task.database
+            if not restore_host or not restore_username or not restore_db:
+                result["error"] = "Missing required connection parameters"
+                return result
             
             # Загружаем файл из хранилища
             from storage_manager import StorageManager
@@ -277,9 +299,9 @@ class PostgresBackupExecutor:
             if restore_cmd == "pg_restore":
                 cmd = [
                     "pg_restore",
-                    f"--host={self.task.host}",
-                    f"--port={self.task.port}",
-                    f"--username={self.task.username}",
+                    f"--host={restore_host}",
+                    f"--port={restore_port}",
+                    f"--username={restore_username}",
                     f"--dbname={restore_db}",
                     "--clean",
                     "--if-exists",
@@ -289,15 +311,16 @@ class PostgresBackupExecutor:
                 # Для plain SQL используем psql
                 cmd = [
                     "psql",
-                    f"--host={self.task.host}",
-                    f"--port={self.task.port}",
-                    f"--username={self.task.username}",
+                    f"--host={restore_host}",
+                    f"--port={restore_port}",
+                    f"--username={restore_username}",
                     f"--dbname={restore_db}",
                     "--file", str(local_file)
                 ]
             
             env = os.environ.copy()
-            env["PGPASSWORD"] = password
+            if restore_password:
+                env["PGPASSWORD"] = restore_password
             
             logger.info(f"Restoring database {restore_db} from {local_file}")
             

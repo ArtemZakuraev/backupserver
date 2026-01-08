@@ -52,7 +52,37 @@
                                     <div class="mb-3">
                                         <label for="pg_target_database" class="form-label">Целевая база данных (опционально)</label>
                                         <input type="text" class="form-control" id="pg_target_database" name="target_database" placeholder="Оставьте пустым для восстановления в исходную БД">
-                                        <small class="form-text text-muted">Если указано, данные будут восстановлены в указанную базу данных</small>
+                                        <small class="form-text text-muted">Если указано, данные будут восстановлены в указанную базу данных на том же сервере</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="pg_restore_remote" name="restore_remote">
+                                            <label class="form-check-label" for="pg_restore_remote">
+                                                Восстановить на сторонний сервер
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div id="remoteServerFields" style="display: none;">
+                                        <div class="mb-3">
+                                            <label for="pg_remote_host" class="form-label">Адрес сервера</label>
+                                            <input type="text" class="form-control" id="pg_remote_host" name="remote_host" placeholder="192.168.1.100">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="pg_remote_port" class="form-label">Порт</label>
+                                            <input type="number" class="form-control" id="pg_remote_port" name="remote_port" value="5432" placeholder="5432">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="pg_remote_database" class="form-label">База данных</label>
+                                            <input type="text" class="form-control" id="pg_remote_database" name="remote_database" placeholder="mydatabase" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="pg_remote_username" class="form-label">Имя пользователя</label>
+                                            <input type="text" class="form-control" id="pg_remote_username" name="remote_username" placeholder="postgres" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="pg_remote_password" class="form-label">Пароль</label>
+                                            <input type="password" class="form-control" id="pg_remote_password" name="remote_password" placeholder="password" required>
+                                        </div>
                                     </div>
                                     <div class="alert alert-warning">
                                         <i class="fas fa-exclamation-triangle me-2"></i>
@@ -135,15 +165,20 @@ document.getElementById('pg_task_select').addEventListener('change', function() 
     backupSelect.disabled = true;
     backupSelect.innerHTML = '<option value="">Загрузка...</option>';
     
-    fetch(`/api/postgres-backup-tasks/${taskId}/backups`)
+    fetch(`/api/web/postgres-backup-tasks/${taskId}/backups`, {
+        credentials: 'same-origin'
+    })
         .then(response => response.json())
         .then(data => {
             backupSelect.innerHTML = '<option value="">Выберите бэкап...</option>';
             if (data.backups && data.backups.length > 0) {
                 data.backups.forEach(backup => {
                     const option = document.createElement('option');
-                    option.value = backup.name;
-                    option.textContent = `${backup.name} (${(backup.size / 1024 / 1024).toFixed(2)} MB, ${new Date(backup.last_modified).toLocaleString()})`;
+                    option.value = backup.name;  // Полный путь для восстановления
+                    const displayName = backup.display_name || backup.name.split('/').pop() || backup.name;
+                    const sizeMB = backup.size ? (backup.size / 1024 / 1024).toFixed(2) : '0.00';
+                    const dateStr = backup.last_modified ? new Date(backup.last_modified).toLocaleString() : 'дата неизвестна';
+                    option.textContent = `${displayName} (${sizeMB} MB, ${dateStr})`;
                     backupSelect.appendChild(option);
                 });
             } else {
@@ -158,32 +193,76 @@ document.getElementById('pg_task_select').addEventListener('change', function() 
         });
 });
 
+// Показываем/скрываем поля для стороннего сервера
+document.getElementById('pg_restore_remote').addEventListener('change', function() {
+    const remoteFields = document.getElementById('remoteServerFields');
+    if (this.checked) {
+        remoteFields.style.display = 'block';
+        // Делаем поля обязательными
+        document.getElementById('pg_remote_database').required = true;
+        document.getElementById('pg_remote_username').required = true;
+        document.getElementById('pg_remote_password').required = true;
+    } else {
+        remoteFields.style.display = 'none';
+        // Убираем обязательность
+        document.getElementById('pg_remote_database').required = false;
+        document.getElementById('pg_remote_username').required = false;
+        document.getElementById('pg_remote_password').required = false;
+    }
+});
+
 document.getElementById('postgresRestoreForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
     const taskId = document.getElementById('pg_task_select').value;
     const s3Path = document.getElementById('pg_backup_select').value;
     const targetDatabase = document.getElementById('pg_target_database').value;
+    const restoreRemote = document.getElementById('pg_restore_remote').checked;
     
     if (!taskId || !s3Path) {
         alert('Пожалуйста, выберите задачу и бэкап');
         return;
     }
     
+    if (restoreRemote) {
+        const remoteHost = document.getElementById('pg_remote_host').value;
+        const remotePort = document.getElementById('pg_remote_port').value;
+        const remoteDatabase = document.getElementById('pg_remote_database').value;
+        const remoteUsername = document.getElementById('pg_remote_username').value;
+        const remotePassword = document.getElementById('pg_remote_password').value;
+        
+        if (!remoteHost || !remoteDatabase || !remoteUsername || !remotePassword) {
+            alert('Пожалуйста, заполните все поля для стороннего сервера');
+            return;
+        }
+    }
+    
     if (!confirm('Вы уверены, что хотите восстановить базу данных? Это действие может перезаписать существующие данные.')) {
         return;
     }
     
-    fetch(`/api/postgres-backup-tasks/${taskId}/restore`, {
+    const requestBody = {
+        task_id: parseInt(taskId),
+        s3_path: s3Path,
+        target_database: targetDatabase || null
+    };
+    
+    if (restoreRemote) {
+        requestBody.restore_remote = true;
+        requestBody.remote_host = document.getElementById('pg_remote_host').value;
+        requestBody.remote_port = parseInt(document.getElementById('pg_remote_port').value) || 5432;
+        requestBody.remote_database = document.getElementById('pg_remote_database').value;
+        requestBody.remote_username = document.getElementById('pg_remote_username').value;
+        requestBody.remote_password = document.getElementById('pg_remote_password').value;
+    }
+    
+    fetch(`/api/web/postgres-backup-tasks/${taskId}/restore`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            task_id: parseInt(taskId),
-            s3_path: s3Path,
-            target_database: targetDatabase || null
-        })
+        credentials: 'same-origin',
+        body: JSON.stringify(requestBody)
     })
     .then(response => response.json())
     .then(data => {
@@ -192,6 +271,7 @@ document.getElementById('postgresRestoreForm').addEventListener('submit', functi
             document.getElementById('postgresRestoreForm').reset();
             document.getElementById('pg_backup_select').disabled = true;
             document.getElementById('pg_backup_select').innerHTML = '<option value="">Сначала выберите задачу...</option>';
+            document.getElementById('remoteServerFields').style.display = 'none';
         } else {
             alert('Ошибка: ' + (data.detail || data.error || 'Неизвестная ошибка'));
         }
@@ -246,6 +326,9 @@ document.getElementById('foldersRestoreForm').addEventListener('submit', functio
 });
 </script>
 {% endblock %}
+
+
+
 
 
 

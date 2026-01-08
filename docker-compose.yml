@@ -17,9 +17,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+    networks:
+      - bs
   server:
-    image: ttartem/backupserver:1.1
+    image: ttartem/backupserver:1.7
     container_name: backup_server
     depends_on:
       db:
@@ -34,13 +35,21 @@ services:
       DEBUG: "true"
     ports:
       - "8000:8000"
+      - "8443:443"
     volumes:
       - ./templates:/app/templates
       - ./static:/app/static
     restart: unless-stopped
+    networks:
+      - bs
 
+networks:
+   bs:
 volumes:
   pgdata:
+
+
+
 
 
 

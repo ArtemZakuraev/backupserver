@@ -31,6 +31,11 @@
                 {% endif %}
             </div>
             <div class="card-body">
+                {% if error %}
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>{{ error }}
+                    </div>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table">
                         <thead>
@@ -160,6 +165,91 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Секция с информацией о дисках агентов -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-server me-2"></i>Диски агентов</h4>
+            </div>
+            <div class="card-body">
+                {% if agent_disks %}
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Агент</th>
+                                <th>Устройство</th>
+                                <th>Точка монтирования</th>
+                                <th>Файловая система</th>
+                                <th>Использовано / Всего</th>
+                                <th>Свободно</th>
+                                <th>Использование</th>
+                                <th>Последнее обновление</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for agent_id, disks in agent_disks.items() %}
+                                {% set agent = agents_dict.get(agent_id) %}
+                                {% for disk in disks %}
+                                <tr>
+                                    {% if loop.first %}
+                                    <td rowspan="{{ disks|length }}" class="align-middle">
+                                        <strong>{{ agent.name if agent else f'Agent #{agent_id}' }}</strong><br>
+                                        <small class="text-muted">{{ agent.ip_address if agent else 'N/A' }}</small>
+                                    </td>
+                                    {% endif %}
+                                    <td><code>{{ disk.device }}</code></td>
+                                    <td><code>{{ disk.mount_point }}</code></td>
+                                    <td>{{ disk.filesystem or '-' }}</td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar {% if disk.used_percent > 90 %}bg-danger{% elif disk.used_percent > 75 %}bg-warning{% else %}bg-success{% endif %}" 
+                                                 role="progressbar" 
+                                                 style="width: {{ disk.used_percent }}%"
+                                                 aria-valuenow="{{ disk.used_percent }}" 
+                                                 aria-valuemin="0" 
+                                                 aria-valuemax="100">
+                                                {{ "%.2f"|format(disk.used_gb) }} GB
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">из {{ "%.2f"|format(disk.total_gb) }} GB</small>
+                                    </td>
+                                    <td>
+                                        {% set free_percent = (disk.available_gb / disk.total_gb * 100) if disk.total_gb > 0 else 0 %}
+                                        <span class="{% if free_percent <= 5 %}text-danger{% elif free_percent <= 10 %}text-warning{% else %}text-success{% endif %}">
+                                            {{ "%.2f"|format(disk.available_gb) }} GB ({{ "%.1f"|format(free_percent) }}%)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if disk.used_percent > 90 %}bg-danger{% elif disk.used_percent > 75 %}bg-warning{% else %}bg-success{% endif %}">
+                                            {{ "%.1f"|format(disk.used_percent) }}%
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if disk.last_update %}
+                                            {{ disk.last_update.strftime('%Y-%m-%d %H:%M:%S') }}
+                                        {% else %}
+                                            <span class="text-muted">Никогда</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Информация о дисках агентов будет отображаться после первого опроса агентов.
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -350,26 +440,148 @@
     </div>
 </div>
 
+<!-- Modal для редактирования хранилища -->
+<div class="modal fade" id="editStorageModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать хранилище</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editStorageForm">
+                <div class="modal-body" id="editStorageModalBody">
+                    <!-- Контент будет загружен динамически -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+let currentEditId = null;
+
 function editStorageConfig(id) {
-    // TODO: Реализовать редактирование
-    alert('Редактирование хранилища будет реализовано позже');
+    currentEditId = id;
+    // Загружаем данные хранилища через веб-эндпоинт (использует cookie авторизацию)
+    fetch('/api/web/storage-configs/' + id, {
+        credentials: 'same-origin'
+    })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status === 401) {
+                    alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+                    window.location.href = '/login';
+                    return;
+                }
+                return response.json().then(data => {
+                    throw new Error(data.detail || 'Ошибка загрузки данных');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            const modal = new bootstrap.Modal(document.getElementById('editStorageModal'));
+            const modalBody = document.getElementById('editStorageModalBody');
+            const form = document.getElementById('editStorageForm');
+            
+            // Функция для экранирования HTML
+            function escapeHtml(text) {
+                if (!text) return '';
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return String(text).replace(/[&<>"']/g, m => map[m]);
+            }
+            
+            // Формируем форму в зависимости от типа хранилища
+            let formHtml = '<input type="hidden" name="storage_type" value="' + escapeHtml(data.storage_type) + '">';
+            formHtml += '<div class="mb-3"><label class="form-label">Название</label>';
+            formHtml += '<input type="text" class="form-control" name="name" value="' + escapeHtml(data.name || '') + '" required></div>';
+            
+            if (data.storage_type === 's3') {
+                formHtml += '<div class="mb-3"><label class="form-label">Endpoint</label>';
+                formHtml += '<input type="text" class="form-control" name="endpoint" value="' + escapeHtml(data.config_data.endpoint || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Access Key</label>';
+                formHtml += '<input type="text" class="form-control" name="access_key" value="' + escapeHtml(data.config_data.access_key || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Secret Key</label>';
+                formHtml += '<input type="password" class="form-control" name="secret_key" value="' + escapeHtml(data.config_data.secret_key || '') + '" placeholder="Оставьте пустым, если не хотите менять"></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Bucket Name</label>';
+                formHtml += '<input type="text" class="form-control" name="bucket_name" value="' + escapeHtml(data.config_data.bucket_name || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Регион</label>';
+                formHtml += '<input type="text" class="form-control" name="region" value="' + escapeHtml(data.config_data.region || 'us-east-1') + '"></div>';
+                formHtml += '<div class="form-check mb-3">';
+                formHtml += '<input class="form-check-input" type="checkbox" name="use_ssl" id="edit_use_ssl" ' + (data.config_data.use_ssl ? 'checked' : '') + '>';
+                formHtml += '<label class="form-check-label" for="edit_use_ssl">Использовать SSL</label></div>';
+            } else if (data.storage_type === 'sftp') {
+                formHtml += '<div class="row"><div class="col-md-8 mb-3"><label class="form-label">Хост</label>';
+                formHtml += '<input type="text" class="form-control" name="sftp_host" value="' + escapeHtml(data.config_data.host || '') + '" required></div>';
+                formHtml += '<div class="col-md-4 mb-3"><label class="form-label">Порт</label>';
+                formHtml += '<input type="number" class="form-control" name="sftp_port" value="' + (data.config_data.port || 22) + '" required></div></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Имя пользователя</label>';
+                formHtml += '<input type="text" class="form-control" name="sftp_username" value="' + escapeHtml(data.config_data.username || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Пароль</label>';
+                formHtml += '<input type="password" class="form-control" name="sftp_password" value="" placeholder="Оставьте пустым, если не хотите менять"></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Базовый путь</label>';
+                formHtml += '<input type="text" class="form-control" name="sftp_base_path" value="' + escapeHtml(data.config_data.base_path || '') + '" required></div>';
+            } else if (data.storage_type === 'nfs') {
+                formHtml += '<div class="mb-3"><label class="form-label">NFS сервер</label>';
+                formHtml += '<input type="text" class="form-control" name="nfs_server" value="' + escapeHtml(data.config_data.server || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Путь экспорта</label>';
+                formHtml += '<input type="text" class="form-control" name="nfs_export_path" value="' + escapeHtml(data.config_data.export_path || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Точка монтирования</label>';
+                formHtml += '<input type="text" class="form-control" name="nfs_mount_point" value="' + escapeHtml(data.config_data.mount_point || '') + '" required></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Опции монтирования</label>';
+                formHtml += '<input type="text" class="form-control" name="nfs_options" value="' + escapeHtml(data.config_data.options || 'rw,sync') + '"></div>';
+            } else if (data.storage_type === 'local') {
+                formHtml += '<div class="mb-3"><label class="form-label">Агент</label>';
+                formHtml += '<select class="form-control" name="local_agent_id" required>';
+                formHtml += '<option value="">Выберите агента</option>';
+                const agents = {{ agents | tojson }};
+                agents.forEach(agent => {
+                    const selected = data.config_data.agent_id == agent.id ? 'selected' : '';
+                    formHtml += '<option value="' + agent.id + '" ' + selected + '>' + escapeHtml(agent.name) + ' (' + escapeHtml(agent.ip_address) + ')</option>';
+                });
+                formHtml += '</select></div>';
+                formHtml += '<div class="mb-3"><label class="form-label">Базовый путь</label>';
+                formHtml += '<input type="text" class="form-control" name="local_base_path" value="' + escapeHtml(data.config_data.base_path || '') + '" required></div>';
+            }
+            
+            modalBody.innerHTML = formHtml;
+            form.action = '/storage-configs/' + id + '/edit';
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading storage config:', error);
+            alert('Ошибка при загрузке данных хранилища');
+        });
 }
 
 function deleteStorageConfig(id) {
     if (confirm('Вы уверены, что хотите удалить это хранилище?')) {
-        fetch('/api/storage-configs/' + id, {
+        fetch('/api/web/storage-configs/' + id, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            credentials: 'same-origin'
         })
         .then(response => {
             if (response.ok) {
                 location.reload();
             } else {
-                alert('Ошибка при удалении хранилища');
+                return response.json().then(data => {
+                    alert('Ошибка при удалении хранилища: ' + (data.detail || 'Неизвестная ошибка'));
+                });
             }
+        })
+        .catch(error => {
+            console.error('Error deleting storage config:', error);
+            alert('Ошибка при удалении хранилища');
         });
     }
 }

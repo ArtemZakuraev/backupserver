@@ -17,9 +17,11 @@ from config import settings
 from utils import get_password_hash
 from agent_poller import AgentPoller
 from s3_checker import S3Checker
+from storage_checker import StorageChecker
 from daily_report import DailyReportGenerator
 from report_scheduler import ReportScheduler
 from postgres_scheduler import PostgresBackupScheduler
+from disk_space_checker import DiskSpaceChecker
 import asyncio
 
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +41,11 @@ async def lifespan(app: FastAPI):
         
         # Создаем директории
         os.makedirs("static/uploads", exist_ok=True)
+        os.makedirs("static/vendor/bootstrap/css", exist_ok=True)
+        os.makedirs("static/vendor/bootstrap/js", exist_ok=True)
+        os.makedirs("static/vendor/fontawesome/css", exist_ok=True)
+        os.makedirs("static/vendor/fontawesome/webfonts", exist_ok=True)
+        os.makedirs("static/vendor/chartjs", exist_ok=True)
         os.makedirs("templates", exist_ok=True)
         logger.info("[OK] Directories created")
         
@@ -142,6 +149,82 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"[WARNING] Could not add storage_config_id columns: {e}")
                 # Продолжаем работу, даже если колонка не добавлена
             
+            # Добавляем колонку agent_id в postgres_backup_tasks, если её нет
+            try:
+                from sqlalchemy import text
+                async with engine.begin() as conn:
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='agent_id'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ADD COLUMN agent_id INTEGER"))
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ADD CONSTRAINT fk_postgres_task_agent FOREIGN KEY (agent_id) REFERENCES agents (id) ON DELETE CASCADE"))
+                        logger.info("[OK] Added agent_id column to postgres_backup_tasks table")
+                    else:
+                        logger.info("[OK] Column agent_id already exists in postgres_backup_tasks")
+                    
+                    # Делаем колонки host, port, username, password nullable, если они еще не nullable
+                    # Проверяем и обновляем host
+                    result = await conn.execute(text("""
+                        SELECT is_nullable 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='host'
+                    """))
+                    nullable = result.scalar()
+                    if nullable == 'NO':
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ALTER COLUMN host DROP NOT NULL"))
+                        logger.info("[OK] Made host column nullable in postgres_backup_tasks")
+                    
+                    # Проверяем и обновляем port
+                    result = await conn.execute(text("""
+                        SELECT is_nullable 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='port'
+                    """))
+                    nullable = result.scalar()
+                    if nullable == 'NO':
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ALTER COLUMN port DROP NOT NULL"))
+                        logger.info("[OK] Made port column nullable in postgres_backup_tasks")
+                    
+                    # Проверяем и обновляем username
+                    result = await conn.execute(text("""
+                        SELECT is_nullable 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='username'
+                    """))
+                    nullable = result.scalar()
+                    if nullable == 'NO':
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ALTER COLUMN username DROP NOT NULL"))
+                        logger.info("[OK] Made username column nullable in postgres_backup_tasks")
+                    
+                    # Проверяем и обновляем password
+                    result = await conn.execute(text("""
+                        SELECT is_nullable 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='password'
+                    """))
+                    nullable = result.scalar()
+                    if nullable == 'NO':
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ALTER COLUMN password DROP NOT NULL"))
+                        logger.info("[OK] Made password column nullable in postgres_backup_tasks")
+                    
+                    # Добавляем колонку use_agent_backup, если её нет
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='postgres_backup_tasks' AND column_name='use_agent_backup'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE postgres_backup_tasks ADD COLUMN use_agent_backup BOOLEAN DEFAULT FALSE"))
+                        logger.info("[OK] Added use_agent_backup column to postgres_backup_tasks table")
+                    else:
+                        logger.info("[OK] Column use_agent_backup already exists in postgres_backup_tasks")
+            except Exception as e:
+                logger.warning(f"[WARNING] Could not add agent_id column or make columns nullable: {e}")
+                # Продолжаем работу, даже если миграция не выполнена
+            
             # Создаем таблицы для отчетов, если их нет
             try:
                 from sqlalchemy import text
@@ -203,6 +286,145 @@ async def lifespan(app: FastAPI):
                         logger.info("[OK] Table report_history already exists")
             except Exception as e:
                 logger.warning(f"[WARNING] Could not create reports tables: {e}")
+            
+            # Добавляем колонки для TLS настроек в settings, если их нет
+            try:
+                from sqlalchemy import text
+                async with engine.begin() as conn:
+                    # Проверяем и добавляем tls_enabled
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='tls_enabled'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN tls_enabled BOOLEAN DEFAULT FALSE"))
+                        logger.info("[OK] Added tls_enabled column to settings table")
+                    
+                    # Проверяем и добавляем tls_cert_path
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='tls_cert_path'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN tls_cert_path VARCHAR(500)"))
+                        logger.info("[OK] Added tls_cert_path column to settings table")
+                    
+                    # Проверяем и добавляем tls_key_path
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='tls_key_path'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN tls_key_path VARCHAR(500)"))
+                        logger.info("[OK] Added tls_key_path column to settings table")
+                    
+                    # Проверяем и добавляем tls_cert_folder
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='tls_cert_folder'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN tls_cert_folder VARCHAR(500)"))
+                        logger.info("[OK] Added tls_cert_folder column to settings table")
+                    
+                    # Добавляем колонку mattermost_channel, если её нет
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='mattermost_channel'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN mattermost_channel VARCHAR(100)"))
+                        logger.info("[OK] Added mattermost_channel column to settings table")
+                    else:
+                        logger.info("[OK] Column mattermost_channel already exists")
+                    
+                    # Добавляем колонку logo_path, если её нет
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='logo_path'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN logo_path VARCHAR(500)"))
+                        logger.info("[OK] Added logo_path column to settings table")
+                    else:
+                        logger.info("[OK] Column logo_path already exists")
+                    
+                    # Добавляем колонку favicon_path, если её нет
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='favicon_path'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN favicon_path VARCHAR(500)"))
+                        logger.info("[OK] Added favicon_path column to settings table")
+                    else:
+                        logger.info("[OK] Column favicon_path already exists")
+                    
+                    # Добавляем колонки для мониторинга дисков, если их нет
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='disk_space_check_interval'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN disk_space_check_interval INTEGER DEFAULT 3600"))
+                        logger.info("[OK] Added disk_space_check_interval column to settings table")
+                    else:
+                        logger.info("[OK] Column disk_space_check_interval already exists")
+                    
+                    result = await conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='settings' AND column_name='disk_space_warning_threshold'
+                    """))
+                    if result.scalar() is None:
+                        await conn.execute(text("ALTER TABLE settings ADD COLUMN disk_space_warning_threshold INTEGER DEFAULT 10"))
+                        logger.info("[OK] Added disk_space_warning_threshold column to settings table")
+                    else:
+                        logger.info("[OK] Column disk_space_warning_threshold already exists")
+            except Exception as e:
+                logger.warning(f"[WARNING] Could not add TLS/logo/favicon/disk monitoring columns to settings table: {e}")
+            
+            # Создаем таблицу agent_disks, если её нет
+            try:
+                from sqlalchemy import text
+                async with engine.begin() as conn:
+                    result = await conn.execute(text("""
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM information_schema.tables
+                            WHERE table_name = 'agent_disks'
+                        );
+                    """))
+                    if not result.scalar():
+                        await conn.execute(text("""
+                            CREATE TABLE agent_disks (
+                                id SERIAL PRIMARY KEY,
+                                agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+                                device VARCHAR(255) NOT NULL,
+                                mount_point VARCHAR(500) NOT NULL,
+                                filesystem VARCHAR(50),
+                                total_gb REAL NOT NULL,
+                                used_gb REAL NOT NULL,
+                                available_gb REAL NOT NULL,
+                                used_percent REAL,
+                                last_update TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                            );
+                            CREATE INDEX idx_agent_disks_agent_id ON agent_disks(agent_id);
+                            CREATE UNIQUE INDEX idx_agent_disks_agent_mount ON agent_disks(agent_id, mount_point);
+                        """))
+                        logger.info("[OK] Created agent_disks table")
+                    else:
+                        logger.info("[OK] Table agent_disks already exists")
+            except Exception as e:
+                logger.warning(f"[WARNING] Could not create agent_disks table: {e}")
             
             # Создаем администратора по умолчанию, если его нет
             try:
@@ -275,6 +497,22 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(s3_checker.start())
         logger.info(f"[OK] S3 checker started (interval: {settings.s3_check_interval}s)")
         
+        # Запускаем проверку универсальных хранилищ
+        storage_checker = StorageChecker(check_interval=settings.s3_check_interval)
+        asyncio.create_task(storage_checker.start())
+        logger.info(f"[OK] Storage checker started (interval: {settings.s3_check_interval}s)")
+        
+        # Запускаем проверку свободного места на дисках агентов
+        # Получаем интервал из настроек
+        async with async_session_maker() as session:
+            from sqlalchemy import select
+            result = await session.execute(select(Settings))
+            app_settings = result.scalar_one_or_none()
+            disk_check_interval = app_settings.disk_space_check_interval if app_settings and app_settings.disk_space_check_interval else 3600
+        disk_space_checker = DiskSpaceChecker(check_interval=disk_check_interval)
+        asyncio.create_task(disk_space_checker.start())
+        logger.info(f"[OK] Disk space checker started (interval: {disk_check_interval}s)")
+        
         # Запускаем генератор ежедневных отчетов
         daily_report = DailyReportGenerator()
         asyncio.create_task(daily_report.start())
@@ -336,10 +574,72 @@ app.include_router(web_router, tags=["Web"])
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=settings.server_host,
-        port=settings.server_port,
-        reload=settings.debug
-    )
+    import ssl
+    import asyncio
+    
+    # Функция для получения TLS настроек из БД
+    async def get_tls_config():
+        """Получает настройки TLS из базы данных"""
+        try:
+            async with async_session_maker() as session:
+                from sqlalchemy import select
+                from models import Settings
+                result = await session.execute(select(Settings))
+                settings_obj = result.scalar_one_or_none()
+                
+                if settings_obj and settings_obj.tls_enabled:
+                    if settings_obj.tls_cert_path and settings_obj.tls_key_path:
+                        # Проверяем существование файлов
+                        if os.path.exists(settings_obj.tls_cert_path) and os.path.exists(settings_obj.tls_key_path):
+                            return {
+                                "ssl_keyfile": settings_obj.tls_key_path,
+                                "ssl_certfile": settings_obj.tls_cert_path
+                            }
+        except Exception as e:
+            # Игнорируем ошибки, связанные с отсутствующими колонками (миграции еще не выполнены)
+            error_str = str(e)
+            if "does not exist" in error_str or "UndefinedColumnError" in error_str:
+                # Это нормально при первом запуске, когда миграции еще не выполнены
+                pass
+            else:
+                logger.warning(f"[WARNING] Could not load TLS settings: {e}")
+        
+        return None
+    
+    # Получаем TLS конфигурацию синхронно
+    def get_tls_config_sync():
+        """Получает настройки TLS из базы данных синхронно"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(get_tls_config())
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.warning(f"[WARNING] Could not load TLS settings: {e}")
+            return None
+    
+    tls_config = get_tls_config_sync()
+    
+    if tls_config:
+        logger.info(f"[INFO] Starting server with HTTPS on {settings.server_host}:{settings.server_port}")
+        logger.info(f"[INFO] SSL Certificate: {tls_config['ssl_certfile']}")
+        logger.info(f"[INFO] SSL Key: {tls_config['ssl_keyfile']}")
+        uvicorn.run(
+            "main:app",
+            host=settings.server_host,
+            port=settings.server_port,
+            reload=settings.debug,
+            ssl_keyfile=tls_config["ssl_keyfile"],
+            ssl_certfile=tls_config["ssl_certfile"]
+        )
+    else:
+        logger.info(f"[INFO] Starting server with HTTP on {settings.server_host}:{settings.server_port}")
+        uvicorn.run(
+            "main:app",
+            host=settings.server_host,
+            port=settings.server_port,
+            reload=settings.debug
+        )
 

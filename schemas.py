@@ -22,6 +22,17 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
+class UserCreateAdmin(UserBase):
+    """Схема для создания пользователя администратором"""
+    password: str
+
+
+class PasswordChange(BaseModel):
+    """Схема для изменения пароля"""
+    current_password: str
+    new_password: str
+
+
 # Agent schemas
 class AgentBase(BaseModel):
     name: str
@@ -200,6 +211,23 @@ class BackupTaskCreate(BackupTaskBase):
     pass
 
 
+class BackupTaskUpdate(BaseModel):
+    name: Optional[str] = None
+    agent_id: Optional[int] = None
+    s3_config_id: Optional[int] = None
+    storage_config_id: Optional[int] = None
+    source_path: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    create_archive: Optional[bool] = None
+    archive_format: Optional[str] = None
+    is_docker_compose: Optional[bool] = None
+    docker_compose_path: Optional[str] = None
+    cleanup_enabled: Optional[bool] = None
+    cleanup_days: Optional[int] = None
+    schedule_enabled: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
 class BackupTaskResponse(BackupTaskBase):
     id: int
     filesystem: Optional[str]
@@ -255,11 +283,15 @@ class AgentTaskConfig(BaseModel):
     source_path: str
     create_archive: bool
     archive_format: str
-    s3_endpoint: str
-    s3_access_key: str
-    s3_secret_key: str
-    s3_bucket: str
-    s3_region: str
+    # S3 параметры (для обратной совместимости)
+    s3_endpoint: Optional[str] = None
+    s3_access_key: Optional[str] = None
+    s3_secret_key: Optional[str] = None
+    s3_bucket: Optional[str] = None
+    s3_region: Optional[str] = None
+    # Универсальные параметры хранилища
+    storage_type: Optional[str] = None  # s3, sftp, nfs, local
+    storage_config: Optional[str] = None  # JSON строка с конфигурацией хранилища
     cleanup_enabled: bool
     cleanup_days: int
     is_docker_compose: bool
@@ -272,11 +304,15 @@ class AgentTaskExecute(BaseModel):
     source_path: str
     create_archive: bool
     archive_format: str
-    s3_endpoint: str
-    s3_access_key: str
-    s3_secret_key: str
-    s3_bucket: str
-    s3_region: str
+    # S3 параметры (для обратной совместимости)
+    s3_endpoint: Optional[str] = None
+    s3_access_key: Optional[str] = None
+    s3_secret_key: Optional[str] = None
+    s3_bucket: Optional[str] = None
+    s3_region: Optional[str] = None
+    # Универсальные параметры хранилища
+    storage_type: Optional[str] = None  # s3, sftp, nfs, local
+    storage_config: Optional[str] = None  # JSON строка с конфигурацией хранилища
     cleanup_enabled: bool
     cleanup_days: int
     is_docker_compose: bool
@@ -296,12 +332,13 @@ class AgentBackupInfoResponse(BaseModel):
 # PostgreSQL Backup schemas
 class PostgresBackupTaskBase(BaseModel):
     name: str
+    agent_id: int  # Агент, на котором выполняется задача
     s3_config_id: Optional[int] = None  # Для обратной совместимости
     storage_config_id: Optional[int] = None  # Новое универсальное хранилище
-    host: str
-    port: int = 5432
-    username: str
-    password: str
+    host: Optional[str] = None  # Теперь опционально, т.к. хранится на агенте
+    port: Optional[int] = 5432
+    username: Optional[str] = None
+    password: Optional[str] = None  # Теперь опционально, т.к. хранится на агенте
     database: str
     backup_format: str = "custom"
     compression_level: int = 6
@@ -321,6 +358,7 @@ class PostgresBackupTaskCreate(PostgresBackupTaskBase):
 
 class PostgresBackupTaskUpdate(BaseModel):
     name: Optional[str] = None
+    agent_id: Optional[int] = None
     s3_config_id: Optional[int] = None
     storage_config_id: Optional[int] = None
     host: Optional[str] = None
